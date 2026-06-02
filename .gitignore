@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# 输出文件（可选：如果你想保留生成的 md/png 就注释掉这两行）
+# output/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Marp 生成的图片（体积大，按需排除）
+output/*.png
