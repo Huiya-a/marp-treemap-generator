@@ -93,6 +93,35 @@ Excel 文件
 - `.column` 必须用 `flex: 1 1 0`，`flex: 0 0 auto` 在 Marp v4.4.0 中不生效
 - 空 `<td>` 不要渲染，Marp 默认 td 样式无法用 inline style 覆盖
 
+## 版面约束（2026-06-02 确认）
+
+> ⚠️ 版面已调试到接近期望形态，后续调整**不可破坏现有大体轮廓框架**。
+
+### 核心结构（不可改动）
+
+- 模块格子为**固定宽度矩形**，不满一行时**居中显示**，不拉伸填满
+- 列分配使用 `score = module_dev + vr_dev²` 平衡视觉高度
+- 组数 < 6 用动态列数，≥ 6 用固定 mpr=3 贪心填充
+- Marp CSS 约束：section 必须 `display: block`，treemap 必须 `position: absolute`
+
+### 可安全调整
+
+- 颜色值、间距微调（≤20%）、字体大小、换行策略、目标比值（1.2~1.8）
+
+### 禁止改动
+
+- `--mod-w` CSS 变量机制、`justify-content: center` 居中策略
+- section/treemap 定位方式、column 的 `flex: 1`
+- 两套布局路径的切换逻辑（组数 6 为分界）
+
+### 验证流程
+
+```bash
+python generate_treemap_md.py
+marp output/*.md --images png --allow-local-files
+# 逐张检查：模块等大居中、列高平衡、文字可读、无溢出
+```
+
 ## 配色方案
 
 | 元素 | 颜色 |

@@ -72,6 +72,49 @@ marp output/*.md --pptx
 | Group header | `#1A73E8` |
 | Module background | `#C4D8FC` |
 
+## 当前稳定版面状态（2026-06-02 确认）
+
+版面已调试到接近期望形态，后续调整必须遵守以下约束，**不可破坏现有大体轮廓框架**。
+
+### 已稳定的核心结构（不可改动）
+
+1. **整体布局层级**：`section → .treemap → .domain-frame-wrapper → .domain-frame → .domain-title + .columns → .column → .group → .group-header + .modules → .mod-row → .module`
+2. **模块格子为固定宽度矩形**：通过 CSS 变量 `--mod-w` 控制，不满一行时 `justify-content: center` 居中显示，**不拉伸填满整行**
+3. **列分配算法**：`_assign_groups_to_columns` 使用 `score = module_dev + vr_dev²`（行数偏差平方惩罚）平衡视觉高度
+4. **两套布局路径**：组数 < 6 用动态列数 + 平衡评分；≥ 6 用固定 mpr=3 贪心填充
+5. **Marp CSS 约束**：section 必须 `display: block`；treemap 必须 `position: absolute`；模块用 flexbox 不用 table
+
+### 可安全调整的范围（不影响整体轮廓）
+
+- `src/config.py` 中的**颜色值**（GROUP_BG、MODULE_BG_COLOR 等）
+- `src/config.py` 中的**间距微调**（COL_GAP、ROW_GAP、OUTER_PAD 等，幅度 ≤ 20%）
+- `_wrap_text` 中的**换行策略**（分隔符列表、断行位置偏好）
+- CSS 中的**字体大小、行高、圆角、边框宽度**
+- `compute_modules_per_row` 中的**目标比值**（当前 1.5，可在 1.2~1.8 范围调整）
+- `_assign_groups_to_columns` 中的**评分权重**（当前 module_dev + vr_dev²，权重可微调）
+
+### 禁止改动的部分（会破坏整体框架）
+
+- 模块格子的固定宽度机制（`--mod-w` CSS 变量 + `flex: 0 0 auto`）
+- `justify-content: center` 的居中策略（改为其他对齐方式会导致版面错乱）
+- section / .treemap 的定位方式（`position: absolute` + `display: block`）
+- `.column` 的 `flex: 1` 等宽分配
+- 两套布局路径的切换逻辑（组数 6 为分界）
+- Marp frontmatter 的基本结构（`marp: true` + `style: |` 块）
+
+### 调整后的验证流程
+
+每次改动后必须执行：
+```bash
+python generate_treemap_md.py          # 重新生成
+marp output/*.md --images png --allow-local-files  # 生成图片
+# 逐张检查 4 张图，确认：
+# 1. 模块格子大小一致、居中正确
+# 2. 列高基本平衡
+# 3. 文字可读、换行合理
+# 4. 无溢出或裁切
+```
+
 ## Marp CSS Pitfalls
 
 Marp wraps all content in a `<section>` element with its own flex layout (`display: flex; flex-direction: column`). Key rules to avoid layout breakage:
