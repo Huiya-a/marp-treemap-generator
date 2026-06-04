@@ -29,6 +29,7 @@ from src.config import (
     COL_GAP, ROW_GAP, TARGET_RATIO, ADJUST_MPR,
     GROUP_BG, GROUP_BORDER, GROUP_HEADER_COLOR, MODULE_BG_COLOR,
     MODULE_FONT_SIZE, GROUP_HEADER_FONT_SIZE,
+    CANVAS_W_PX,
 )
 
 
@@ -206,20 +207,23 @@ def _compute_structure(data):
     px_per_unit = CANVAS_W_PX / canvas_w  # 自然单位 → 像素的转换因子
 
     # 字体大小（固定值，与 matplotlib 渲染效果一致）
-    module_font_px = MODULE_FONT_SIZE       # 11px
-    header_font_px = GROUP_HEADER_FONT_SIZE # 14px
+    module_font_px = MODULE_FONT_SIZE       # 18px
+    header_font_px = GROUP_HEADER_FONT_SIZE # 18px
 
-    # 模块行高: 确保能容纳 2 行文本
-    line_h = module_font_px * 1.4
-    row_h = max(module_font_px + 12, 2 * line_h + 8)
+    # 模块行高: 3:1 宽高比 + 内边距
+    # mod_w 在后续计算，这里先用默认值，后面会覆盖
+    row_h = 67  # 默认行高 (63px 模块 + 4px 内边距)
 
     # ---- CSS 尺寸常量 ----
-    css_group_header_h = max(header_font_px + 10, 30)  # 组标题栏高度
-    css_row_gap = 4     # 模块行间距
+    css_group_header_h = 30  # 组标题栏高度 (18px 字号 + 12px padding)
+    css_row_gap = 8     # 模块行间距
+    css_mod_gap = 6     # 模块列间距（同行模块之间）
     css_group_pad = 8   # 组内边距 (4px top + 4px bottom)
     css_group_gap = ROW_GAP * scale * px_per_unit  # 组间垂直间距
 
     # ---- 计算每列实际像素高度 ----
+    # 使用默认行高 67px (188px 模块宽度 / 3 + 4px 内边距)
+    default_row_h = 67
     col_heights_px = []
     for cg in col_groups:
         effective_h = 0
@@ -227,7 +231,7 @@ def _compute_structure(data):
             n = len(modules)
             n_rows = (n + mpr - 1) // mpr
             group_css_h = (css_group_header_h
-                           + n_rows * row_h
+                           + n_rows * default_row_h
                            + max(0, n_rows - 1) * css_row_gap
                            + css_group_pad)
             effective_h += group_css_h
@@ -246,29 +250,42 @@ def _compute_structure(data):
     domain_pad_px = DOMAIN_PAD * px_per_unit
     domain_frame_inner_h = title_area_h + max_col_h_px + 2 * domain_pad_px
 
-    # ---- wrapper 尺寸 ----
-    # wrapper = 最外层的圆角矩形框（含 padding 和 border）
-    total_natural_w = sum(col_max_gw) + (ncols - 1) * COL_GAP  # 自然单位总列宽
-    total_content_px = total_natural_w * scale * px_per_unit     # 像素总列宽
+    # ============================================================
+    # 计算可用空间和 frame 尺寸
+    # ============================================================
+    usable_w = canvas_w - 2 * OUTER_PAD_X
+    usable_h = canvas_h - OUTER_PAD_TOP - OUTER_PAD_BOTTOM
+
+    frame_border = 3   # border 宽度 (px)
+    frame_pad_x = 16   # 水平内边距 (px)
+    frame_pad_y = 12   # 垂直内边距 (px)
+
+    # ---- 缩放因子（用 _run_layout 返回的 scale）----
+    max_col_h = max(col_heights) if col_heights and max(col_heights) > 0 else 1
+
+    # ============================================================
+    # 单 frame: 所有列在一个 frame 里
+    # ============================================================
+    total_natural_w = sum(col_max_gw) + (ncols - 1) * COL_GAP
+    total_content_px = total_natural_w * scale * px_per_unit
 
     wrapper_content_h = domain_frame_inner_h
-    wrapper_outer_h = wrapper_content_h + 2 * 12 + 2 * 3  # + padding(12) + border(3)
+    wrapper_outer_h = wrapper_content_h + 2 * frame_pad_y + 2 * frame_border
     if wrapper_outer_h > available_h:
-        wrapper_outer_h = available_h  # 不超过可用高度
+        wrapper_outer_h = available_h
 
-    # wrapper 宽度 = 内容宽度 + padding + border，不超过可用宽度
-    wrapper_outer_w = min(total_content_px + 2 * 16 + 2 * 3, available_w)
+    # frame 宽度 = 内容宽度 + padding + border，不超过可用宽度
+    wrapper_outer_w = min(total_content_px + 2 * frame_pad_x + 2 * frame_border, available_w)
 
     # 内容区宽度 = wrapper 宽度 - padding - border
-    frame_inner_w = wrapper_outer_w - 2 * 16 - 2 * 3
+    frame_inner_w = wrapper_outer_w - 2 * frame_pad_x - 2 * frame_border
 
     # ---- 列间距（像素）----
-    # 用自然单位 gap 与总宽度的比例，映射到 frame 像素宽度
     gap_px = COL_GAP * frame_inner_w / total_natural_w if total_natural_w > 0 else 0
     total_cols_w = frame_inner_w - (ncols - 1) * gap_px
     col_inner_w = total_cols_w / ncols  # 每列内容区宽度
 
-    # ---- 构建返回数据 ----
+    # ---- 构建返回数据（先用默认尺寸）----
     result_columns = []
     for cg in col_groups:
         col_data = []
@@ -278,12 +295,94 @@ def _compute_structure(data):
                 'modules': modules,
                 'mpr': mpr,
                 'gh': gh,
-                'col_w': col_inner_w,  # 列内容区宽度，用于计算模块固定宽度
+                'col_w': col_inner_w,
             })
         result_columns.append(col_data)
 
+    # ============================================================
+    # 等比放大：用默认尺寸算出自然内容宽度，frame 占满 slide 后按比缩放
+    # ============================================================
+    # 默认 CSS 尺寸
+    default_mod_w = 188
+    default_mod_h_inner = 63
+    default_mod_h = 67
+    default_css_row_gap = 8
+    default_css_mod_gap = 6
+    default_css_group_header_h = 30
+    default_css_group_pad = 12
+    default_font_size = 18
+
+    # 用默认尺寸计算自然内容宽度（像素）
+    natural_col_widths = []
+    for cg in col_groups:
+        if cg:
+            first_mpr = cg[0][4]
+        else:
+            first_mpr = 3
+        col_natural_w = (first_mpr * default_mod_w
+                         + max(0, first_mpr - 1) * default_css_mod_gap
+                         + 2 * 4)
+        natural_col_widths.append(col_natural_w)
+
+    natural_content_w_px = sum(natural_col_widths) + (ncols - 1) * 20
+
+    # frame 占满 slide 可用宽度
+    wrapper_outer_w = available_w
+    frame_inner_w = wrapper_outer_w - 2 * frame_pad_x - 2 * frame_border
+
+    # 缩放因子
+    if natural_content_w_px > 0:
+        fill_scale = frame_inner_w / natural_content_w_px
+    else:
+        fill_scale = 1.0
+
+    # 应用缩放因子到所有 CSS 尺寸
+    scaled_mod_w = default_mod_w * fill_scale
+    scaled_mod_h_inner = default_mod_h_inner * fill_scale
+    scaled_mod_h = default_mod_h * fill_scale
+    scaled_css_row_gap = default_css_row_gap * fill_scale
+    scaled_css_mod_gap = default_css_mod_gap * fill_scale
+    scaled_css_group_header_h = default_css_group_header_h * fill_scale
+    scaled_css_group_pad = default_css_group_pad * fill_scale
+    scaled_font_size = default_font_size * fill_scale
+
+    gap_px = 20 * fill_scale
+
+    # 重新计算 frame 高度
+    new_frame_h = 0
+    for col_data in result_columns:
+        col_h = 0
+        for gi, g in enumerate(col_data):
+            n = len(g['modules'])
+            mpr = g['mpr']
+            n_rows = (n + mpr - 1) // mpr
+            group_h = (scaled_css_group_header_h
+                       + n_rows * scaled_mod_h
+                       + max(0, n_rows - 1) * scaled_css_row_gap
+                       + scaled_css_group_pad)
+            col_h += group_h
+            if gi < len(col_data) - 1:
+                col_h += scaled_css_row_gap
+        new_frame_h = max(new_frame_h, col_h)
+
+    wrapper_outer_h = new_frame_h + 2 * frame_pad_y + 2 * frame_border
+    if wrapper_outer_h > available_h:
+        wrapper_outer_h = available_h
+
+    scale_info = {
+        'fill_scale': fill_scale,
+        'mod_w': scaled_mod_w,
+        'mod_h_inner': scaled_mod_h_inner,
+        'mod_h': scaled_mod_h,
+        'row_gap': scaled_css_row_gap,
+        'mod_gap': scaled_css_mod_gap,
+        'group_header_h': scaled_css_group_header_h,
+        'group_pad': scaled_css_group_pad,
+        'font_size': scaled_font_size,
+    }
+
     return {
-        'domain_columns': result_columns,
+        'domain_columns': result_columns,   # [col_data, ...] 所有列
         'scale': scale,
         'module_font': module_font_px,
         'header_font': header_font_px,
@@ -293,6 +392,8 @@ def _compute_structure(data):
         'col_inner_w': col_inner_w,
         'gap_px': gap_px,
         'row_gap_px': css_row_gap,
+        'ncols': ncols,
+        'scale_info': scale_info,
     }
 
 
@@ -333,11 +434,20 @@ def _render_group_html(group_data, col_inner_w=None):
     # 获取列宽度，计算模块固定宽度
     col_w = group_data.get('col_w', col_inner_w)
     if col_w and mpr > 0:
-        # 模块宽度 = (列宽 - 左右 padding - 模块间间距) / 每行模块数
-        mod_w = (col_w - 2 * 4 - (mpr - 1) * 4) / mpr
+        # 模块宽度 = (列宽 - 内边距 - 模块间间距) / 每行模块数
+        # 内边距: group padding 4px×2 + modules padding 2px×2 = 12px
+        css_mod_gap = 6  # 模块列间距
+        mod_w = (col_w - 12 - (mpr - 1) * css_mod_gap) / mpr
         mod_w_px = f'{mod_w:.0f}px'
+        # 模块高度 = 宽度 / 3（3:1 宽高比）+ 内边距
+        mod_h_inner = mod_w / 3
+        mod_h = mod_h_inner + 4
+        mod_h_inner_px = f'{mod_h_inner:.0f}px'
+        mod_h_px = f'{mod_h:.0f}px'
     else:
         mod_w_px = None
+        mod_h_inner_px = None
+        mod_h_px = None
 
     n_modules = len(modules)
     n_rows = (n_modules + mpr - 1) // mpr
@@ -350,8 +460,10 @@ def _render_group_html(group_data, col_inner_w=None):
             if idx < n_modules:
                 display = _wrap_text(modules[idx])
                 cells += f'<div class="module">{display}</div>'
-        # 在 mod-row 上设置 CSS 变量 --mod-w，控制模块固定宽度
-        style = f' style="--mod-w:{mod_w_px}"' if mod_w_px else ''
+        if mod_w_px and mod_h_inner_px and mod_h_px:
+            style = f' style="--mod-w:{mod_w_px}; --mod-h:{mod_h_px}; --mod-h-inner:{mod_h_inner_px}"'
+        else:
+            style = ''
         rows_html += f'<div class="mod-row"{style}>{cells}</div>\n'
 
     return f'''<div class="group">
@@ -365,7 +477,7 @@ def _render_group_html(group_data, col_inner_w=None):
 # Marp Markdown 生成
 # ============================================================
 
-def generate_marp_md(domain_name, data, output_path):
+def generate_marp_md(domain_name, data, output_path, proportional_width=None):
     """
     生成完整的 Marp Markdown 文件。
 
@@ -377,6 +489,7 @@ def generate_marp_md(domain_name, data, output_path):
         domain_name: 应用域名称（如 "纪检监察域"）
         data: {group_name: [module_name, ...]}
         output_path: 输出 .md 文件路径
+        proportional_width: 按比例分配的宽度（px），为 None 时使用默认宽度
     """
     # 计算布局结构
     structure = _compute_structure(data)
@@ -389,14 +502,58 @@ def generate_marp_md(domain_name, data, output_path):
     row_h = structure['row_h']
     gap_px = structure['gap_px']
     row_gap_px = structure['row_gap_px']
+    ncols = structure['ncols']
+    scale_info = structure.get('scale_info')
 
-    # 生成每列的 HTML
+    if scale_info:
+        default_mod_h_val = f'{scale_info["mod_h"]:.0f}px'
+        default_mod_h_inner_val = f'{scale_info["mod_h_inner"]:.0f}px'
+        default_mod_w_val = f'{scale_info["mod_w"]:.0f}px'
+        default_row_gap_val = f'{scale_info["row_gap"]:.0f}px'
+        default_mod_gap_val = f'{scale_info["mod_gap"]:.0f}px'
+        default_font_val = f'{scale_info["font_size"]:.0f}px'
+        default_group_pad_val = f'{scale_info["group_pad"] / 2:.0f}px'
+    else:
+        default_mod_h_val = '67px'
+        default_mod_h_inner_val = '63px'
+        default_mod_w_val = '188px'
+        default_row_gap_val = '8px'
+        default_mod_gap_val = '6px'
+        default_font_val = '18px'
+        default_group_pad_val = '4px'
+
+    # 如果指定了比例宽度，使用它；否则使用默认宽度
+    if proportional_width is not None:
+        domain_frame_w = proportional_width
+        # 重新计算列宽和间距
+        frame_inner_w = domain_frame_w - 2 * 16 - 2 * 3  # - padding - border
+        total_natural_w = sum(
+            max(gw for _, _, gw, _, _ in cg) if cg else 1
+            for cg in [columns[i] for i in range(len(columns))]
+        ) if False else ncols  # 简化: 用列数计算
+        # 用列数重新计算列宽
+        gap_px = 12  # 默认间距
+        total_cols_w = frame_inner_w - max(0, ncols - 1) * gap_px
+        col_inner_w = total_cols_w / ncols
+        # 更新每列的 col_w
+        for col_data in columns:
+            for g in col_data:
+                g['col_w'] = col_inner_w
+
+    # 生成每列的 HTML（按每列第一个组的 mpr 比例分配列宽）
+    total_mpr = sum(col[0]['mpr'] for col in columns if col)
+    frame_inner_w = domain_frame_w - 2 * 16 - 2 * 3  # wrapper 内容区宽度
+    total_gap_w = gap_px * max(0, len(columns) - 1)
+    available_col_w = frame_inner_w - total_gap_w
+
     columns_html = ''
     for ci, col in enumerate(columns):
+        col_mpr = col[0]['mpr'] if col else 1
+        col_w = available_col_w * col_mpr / total_mpr if total_mpr > 0 else available_col_w / len(columns)
         groups_html = ''
         for g in col:
             groups_html += _render_group_html(g) + '\n'
-        columns_html += f'<div class="column">\n{groups_html}</div>\n'
+        columns_html += f'<div class="column" style="flex: 0 0 {col_w:.0f}px; max-width: {col_w:.0f}px;">\n{groups_html}</div>\n'
 
     # 组装完整的 Marp Markdown
     # 注意: CSS 中使用双大括号 {{ }} 是因为 Python f-string 转义
@@ -447,7 +604,7 @@ style: |
   }}
   .domain-title {{
     text-align: center;
-    font-size: {header_font + 6:.0f}px;
+    font-size: 32px;
     font-weight: bold;
     color: #2C3E50;
     margin-bottom: 8px;
@@ -466,15 +623,14 @@ style: |
   .column {{
     display: flex;
     flex-direction: column;
-    gap: {row_gap_px:.0f}px;
-    flex: 1;
+    gap: 12px;
     min-width: 0;
   }}
   .group {{
     background: {GROUP_BG};
     border: 1.5px solid {GROUP_BORDER};
     border-radius: 6px;
-    padding: 4px;
+    padding: {default_group_pad_val};
     display: flex !important;
     flex-direction: column;
     box-sizing: border-box;
@@ -483,9 +639,9 @@ style: |
     background: {GROUP_HEADER_COLOR};
     color: white;
     text-align: center;
-    font-size: {header_font:.0f}px;
+    font-size: {default_font_val};
     font-weight: bold;
-    padding: 5px 8px;
+    padding: 6px 8px;
     border-radius: 4px;
     margin-bottom: 4px;
     flex-shrink: 0;
@@ -494,20 +650,20 @@ style: |
   .modules {{
     display: flex !important;
     flex-direction: column !important;
-    gap: {row_gap_px:.0f}px !important;
+    gap: {default_row_gap_val} !important;
     padding: 2px !important;
     flex: 1;
   }}
   .mod-row {{
     display: flex !important;
     justify-content: center !important;
-    gap: 4px !important;
-    height: {row_h:.0f}px !important;
+    gap: {default_mod_gap_val} !important;
+    height: var(--mod-h, {default_mod_h_val}) !important;
   }}
   .module {{
     flex: 0 0 auto !important;
-    width: var(--mod-w, 120px) !important;
-    height: 100% !important;
+    width: var(--mod-w, {default_mod_w_val}) !important;
+    height: var(--mod-h-inner, {default_mod_h_inner_val}) !important;
     overflow: hidden !important;
     display: flex !important;
     align-items: center !important;
@@ -516,7 +672,7 @@ style: |
     border: 1px solid white;
     border-radius: 3px;
     text-align: center;
-    font-size: {module_font:.0f}px;
+    font-size: {default_font_val};
     font-weight: 500;
     color: #1A1A1A;
     font-family: "Microsoft YaHei", sans-serif;
@@ -595,17 +751,24 @@ def main():
     支持两种模式:
     1. 指定文件名: python generate_treemap_md.py 03
     2. 处理全部: python generate_treemap_md.py
+
+    选项:
+    --proportional-width: 按列数比例分配 frame 宽度（多 frame 场景）
     """
     base_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(base_dir, 'data')
     output_dir = os.path.join(base_dir, 'output')
     os.makedirs(output_dir, exist_ok=True)
 
+    # 解析参数
+    proportional_width = '--proportional-width' in sys.argv
+    args = [a for a in sys.argv[1:] if a != '--proportional-width']
+
     excel_files_to_process = []
 
-    if len(sys.argv) > 1:
+    if len(args) > 0:
         # 指定文件名模式: 按前缀/包含匹配查找
-        input_name = sys.argv[1]
+        input_name = args[0]
 
         # 尝试直接路径
         excel_path = os.path.join(data_dir, input_name)
@@ -640,26 +803,63 @@ def main():
         print('No Excel files found in data/')
         return
 
-    # 逐个处理 Excel 文件
-    for excel_path in excel_files_to_process:
-        print(f'Processing: {os.path.basename(excel_path)}')
+    # ---- 比例宽度模式: 先计算所有文件的列数，再分配宽度 ----
+    if proportional_width and len(excel_files_to_process) > 1:
+        # 第一遍: 计算每个文件的列数
+        file_ncols = []
+        for excel_path in excel_files_to_process:
+            _, data = load_data_from_excel(excel_path)
+            structure = _compute_structure(data)
+            file_ncols.append(structure['ncols'])
 
-        # 加载数据
-        domain_name, data = load_data_from_excel(excel_path)
+        total_cols = sum(file_ncols)
+        max_frame_w = CANVAS_W_PX - 2 * 20  # section padding
 
-        # 生成输出文件名（空格替换为下划线，避免 Marp CLI 报错）
-        input_stem = os.path.splitext(os.path.basename(excel_path))[0]
-        safe_stem = input_stem.replace(' ', '_')
-        output_path = os.path.join(output_dir, f'{safe_stem}.md')
+        print(f'\nProportional width mode: {total_cols} total columns')
+        for i, (excel_path, ncols) in enumerate(zip(excel_files_to_process, file_ncols)):
+            ratio = ncols / total_cols
+            frame_w = max_frame_w * ratio
+            print(f'  {os.path.basename(excel_path)}: {ncols} cols -> {frame_w:.0f}px ({ratio*100:.0f}%)')
 
-        # 打印数据摘要
-        print(f'  Domain: {domain_name}')
-        print(f'  Groups: {len(data)}')
-        for k, v in data.items():
-            print(f'    {k}: {len(v)} modules')
+        # 第二遍: 生成文件（带比例宽度）
+        for excel_path, ncols in zip(excel_files_to_process, file_ncols):
+            print(f'\nProcessing: {os.path.basename(excel_path)}')
+            domain_name, data = load_data_from_excel(excel_path)
+            input_stem = os.path.splitext(os.path.basename(excel_path))[0]
+            safe_stem = input_stem.replace(' ', '_')
+            output_path = os.path.join(output_dir, f'{safe_stem}.md')
 
-        # 生成 Marp Markdown
-        generate_marp_md(domain_name, data, output_path)
+            ratio = ncols / total_cols
+            frame_w = max_frame_w * ratio
+
+            print(f'  Domain: {domain_name}')
+            print(f'  Groups: {len(data)}')
+            for k, v in data.items():
+                print(f'    {k}: {len(v)} modules')
+            print(f'  Frame width: {frame_w:.0f}px ({ratio*100:.0f}%)')
+
+            generate_marp_md(domain_name, data, output_path, proportional_width=frame_w)
+    else:
+        # 逐个处理 Excel 文件（默认模式）
+        for excel_path in excel_files_to_process:
+            print(f'Processing: {os.path.basename(excel_path)}')
+
+            # 加载数据
+            domain_name, data = load_data_from_excel(excel_path)
+
+            # 生成输出文件名（空格替换为下划线，避免 Marp CLI 报错）
+            input_stem = os.path.splitext(os.path.basename(excel_path))[0]
+            safe_stem = input_stem.replace(' ', '_')
+            output_path = os.path.join(output_dir, f'{safe_stem}.md')
+
+            # 打印数据摘要
+            print(f'  Domain: {domain_name}')
+            print(f'  Groups: {len(data)}')
+            for k, v in data.items():
+                print(f'    {k}: {len(v)} modules')
+
+            # 生成 Marp Markdown
+            generate_marp_md(domain_name, data, output_path)
 
     print(f'\nDone! Convert to PPTX with:')
     print(f'  marp {output_dir}/*.md --pptx')
