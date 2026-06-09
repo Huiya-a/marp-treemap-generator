@@ -212,7 +212,7 @@ def _compute_structure(data):
 
     # 模块行高: 3:1 宽高比 + 内边距
     # mod_w 在后续计算，这里先用默认值，后面会覆盖
-    row_h = 67  # 默认行高 (63px 模块 + 4px 内边距)
+    row_h = 55  # 默认行高 (51px 模块 + 4px 内边距)
 
     # ---- CSS 尺寸常量 ----
     css_group_header_h = 30  # 组标题栏高度 (18px 字号 + 12px padding)
@@ -222,8 +222,8 @@ def _compute_structure(data):
     css_group_gap = ROW_GAP * scale * px_per_unit  # 组间垂直间距
 
     # ---- 计算每列实际像素高度 ----
-    # 使用默认行高 67px (188px 模块宽度 / 3 + 4px 内边距)
-    default_row_h = 67
+    # 使用默认行高 55px (153px 模块宽度 / 3 + 4px 内边距)
+    default_row_h = 55
     col_heights_px = []
     for cg in col_groups:
         effective_h = 0
@@ -303,14 +303,15 @@ def _compute_structure(data):
     # 等比放大：用默认尺寸算出自然内容宽度，frame 占满 slide 后按比缩放
     # ============================================================
     # 默认 CSS 尺寸
-    default_mod_w = 188
-    default_mod_h_inner = 63
-    default_mod_h = 67
-    default_css_row_gap = 8
+    default_mod_w = 153
+    default_mod_h_inner = 51
+    default_mod_h = 55
+    default_css_row_gap = 4
     default_css_mod_gap = 6
     default_css_group_header_h = 30
-    default_css_group_pad = 12
-    default_font_size = 18
+    default_css_group_pad = 22
+    default_header_font_size = 18
+    default_module_font_size = 14
 
     # 用默认尺寸计算自然内容宽度（像素）
     natural_col_widths = []
@@ -321,7 +322,7 @@ def _compute_structure(data):
             first_mpr = 3
         col_natural_w = (first_mpr * default_mod_w
                          + max(0, first_mpr - 1) * default_css_mod_gap
-                         + 2 * 4)
+                         + 2 * 11)
         natural_col_widths.append(col_natural_w)
 
     natural_content_w_px = sum(natural_col_widths) + (ncols - 1) * 20
@@ -344,7 +345,8 @@ def _compute_structure(data):
     scaled_css_mod_gap = default_css_mod_gap * fill_scale
     scaled_css_group_header_h = default_css_group_header_h * fill_scale
     scaled_css_group_pad = default_css_group_pad * fill_scale
-    scaled_font_size = default_font_size * fill_scale
+    scaled_header_font_size = default_header_font_size * fill_scale
+    scaled_module_font_size = default_module_font_size * fill_scale
 
     gap_px = 20 * fill_scale
 
@@ -378,7 +380,8 @@ def _compute_structure(data):
         'mod_gap': scaled_css_mod_gap,
         'group_header_h': scaled_css_group_header_h,
         'group_pad': scaled_css_group_pad,
-        'font_size': scaled_font_size,
+        'header_font_size': scaled_header_font_size,
+        'module_font_size': scaled_module_font_size,
     }
 
     return {
@@ -435,9 +438,9 @@ def _render_group_html(group_data, col_inner_w=None):
     col_w = group_data.get('col_w', col_inner_w)
     if col_w and mpr > 0:
         # 模块宽度 = (列宽 - 内边距 - 模块间间距) / 每行模块数
-        # 内边距: group padding 4px×2 + modules padding 2px×2 = 12px
+        # 内边距: group padding 11px×2 = 22px
         css_mod_gap = 6  # 模块列间距
-        mod_w = (col_w - 12 - (mpr - 1) * css_mod_gap) / mpr
+        mod_w = (col_w - 22 - (mpr - 1) * css_mod_gap) / mpr
         mod_w_px = f'{mod_w:.0f}px'
         # 模块高度 = 宽度 / 3（3:1 宽高比）+ 内边距
         mod_h_inner = mod_w / 3
@@ -511,16 +514,18 @@ def generate_marp_md(domain_name, data, output_path, proportional_width=None):
         default_mod_w_val = f'{scale_info["mod_w"]:.0f}px'
         default_row_gap_val = f'{scale_info["row_gap"]:.0f}px'
         default_mod_gap_val = f'{scale_info["mod_gap"]:.0f}px'
-        default_font_val = f'{scale_info["font_size"]:.0f}px'
+        default_header_font_val = f'{scale_info["header_font_size"]:.0f}px'
+        default_module_font_val = f'{scale_info["module_font_size"]:.0f}px'
         default_group_pad_val = f'{scale_info["group_pad"] / 2:.0f}px'
     else:
-        default_mod_h_val = '67px'
-        default_mod_h_inner_val = '63px'
-        default_mod_w_val = '188px'
+        default_mod_h_val = '55px'
+        default_mod_h_inner_val = '51px'
+        default_mod_w_val = '153px'
         default_row_gap_val = '8px'
         default_mod_gap_val = '6px'
-        default_font_val = '18px'
-        default_group_pad_val = '4px'
+        default_header_font_val = '18px'
+        default_module_font_val = '14px'
+        default_group_pad_val = '11px'
 
     # 如果指定了比例宽度，使用它；否则使用默认宽度
     if proportional_width is not None:
@@ -604,7 +609,7 @@ style: |
   }}
   .domain-title {{
     text-align: center;
-    font-size: 32px;
+    font-size: 22px;
     font-weight: bold;
     color: #2C3E50;
     margin-bottom: 8px;
@@ -623,7 +628,7 @@ style: |
   .column {{
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
     min-width: 0;
   }}
   .group {{
@@ -639,7 +644,7 @@ style: |
     background: {GROUP_HEADER_COLOR};
     color: white;
     text-align: center;
-    font-size: {default_font_val};
+    font-size: {default_header_font_val};
     font-weight: bold;
     padding: 6px 8px;
     border-radius: 4px;
@@ -672,7 +677,7 @@ style: |
     border: 1px solid white;
     border-radius: 3px;
     text-align: center;
-    font-size: {default_font_val};
+    font-size: {default_module_font_val};
     font-weight: 500;
     color: #1A1A1A;
     font-family: "Microsoft YaHei", sans-serif;
