@@ -8,7 +8,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QSpinBox, QDoubleSpinBox, QCheckBox,
-    QColorDialog, QPushButton, QScrollArea, QMessageBox, QDialog
+    QColorDialog, QPushButton, QMessageBox, QDialog
 )
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QColor, QWheelEvent
@@ -97,14 +97,8 @@ class ParamsPanel(QWidget):
 
     def _setup_ui(self):
         """设置UI布局"""
-        # 创建滚动区域
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.NoFrame)
-
-        # 创建内容widget
-        content_widget = QWidget()
-        layout = QVBoxLayout(content_widget)
+        # 直接布局，由外层 CollapsibleSection 统一管理滚动
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         # ========== 颜色参数组 ==========
@@ -282,15 +276,6 @@ class ParamsPanel(QWidget):
         template_layout.addWidget(self.save_template_btn)
 
         layout.addLayout(template_layout)
-
-        layout.addStretch()
-
-        scroll_area.setWidget(content_widget)
-
-        # 主布局
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(scroll_area)
 
     def _on_params_changed(self):
         """参数改变时触发"""
