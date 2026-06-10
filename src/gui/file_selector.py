@@ -37,11 +37,6 @@ class FileSelector(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # 标题
-        title_label = QLabel("文件选择")
-        title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(title_label)
-
         # 按钮区域
         btn_layout = QHBoxLayout()
 

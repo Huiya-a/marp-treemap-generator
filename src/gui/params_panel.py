@@ -107,11 +107,6 @@ class ParamsPanel(QWidget):
         layout = QVBoxLayout(content_widget)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # 标题
-        title_label = QLabel("参数调整")
-        title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(title_label)
-
         # ========== 颜色参数组 ==========
         color_group = QGroupBox("颜色设置")
         color_layout = QVBoxLayout(color_group)
