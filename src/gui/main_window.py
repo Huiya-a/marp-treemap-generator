@@ -42,21 +42,17 @@ class GenerateWorker(QThread):
     file_status = Signal(int, str, str)  # 文件状态更新 (索引, 状态, 消息)
 
     def __init__(self, files: list, output_dir: str, params: dict, export_format: str = 'png',
-                 existing_md_files: dict = None):
-        """
-        Args:
-            existing_md_files: 已生成的 MD 文件映射 {excel_path: md_path}
-        """
+                 session_processed: set = None):
         super().__init__()
         self.files = files
         self.output_dir = output_dir
         self.params = params
-        self.export_format = export_format  # 导出格式: 'png', 'pptx', 'both'
+        self.export_format = export_format
         self._is_cancelled = False
-        self._generated_md_files = []  # 保存生成的MD文件路径
-        self._original_params = {}  # 每个文件的原始 config 参数
-        self._existing_md_files = existing_md_files or {}
-        self._excel_to_md = {}  # {excel_path: md_path} 映射
+        self._generated_md_files = []
+        self._original_params = {}
+        self._session_processed = session_processed if session_processed is not None else set()
+        self._excel_to_md = {}
 
     def run(self):
         """执行生成任务"""
@@ -86,37 +82,43 @@ class GenerateWorker(QThread):
                     safe_domain = domain_name.replace(' ', '_').replace('/', '_')
                     output_path = os.path.join(self.output_dir, f"{safe_domain}.md")
 
-                    # 检查是否已有生成的 Markdown
-                    if file_path in self._existing_md_files and os.path.exists(self._existing_md_files[file_path]):
-                        # 已有 Markdown，参数已由 _on_params_changed() 应用，直接使用
-                        existing_md = self._existing_md_files[file_path]
-                        self.log.emit(f"  已有 Markdown，直接使用: {existing_md}")
-                        output_path = existing_md
-                    else:
-                        # 首次生成：用默认 config 生成 Markdown
+                    # 会话级复用：本次打开后首次处理该文件则生成，否则复用
+                    if file_path not in self._session_processed:
                         self.log.emit("  首次生成 Markdown...")
                         from generate_treemap_md import generate_marp_md
                         generate_marp_md(domain_name, data, output_path, proportional_width=None)
+                        self._session_processed.add(file_path)
+                    else:
+                        self.log.emit(f"  复用已有 Markdown: {output_path}")
 
-                        # 保存原始参数（首次生成时 config 的值就是默认值）
-                        self._original_params[output_path] = {
+                    # 保存原始参数（config 默认值）
+                    self._original_params[output_path] = {
                             'GROUP_BG': config.GROUP_BG,
                             'GROUP_HEADER_COLOR': config.GROUP_HEADER_COLOR,
                             'MODULE_BG_COLOR': config.MODULE_BG_COLOR,
+                            'DOMAIN_BG': config.DOMAIN_BG,
+                            'DOMAIN_BORDER_COLOR': config.DOMAIN_BORDER_COLOR,
+                            'DOMAIN_TITLE_COLOR': config.DOMAIN_TITLE_COLOR,
+                            'MODULE_BORDER_COLOR': config.MODULE_BORDER_COLOR,
                             'MODULE_W': config.MODULE_W,
                             'MODULE_H': config.MODULE_H,
                             'COL_GAP': config.COL_GAP,
                             'ROW_GAP': config.ROW_GAP,
                             'MODULE_FONT_SIZE': config.MODULE_FONT_SIZE,
                             'GROUP_HEADER_FONT_SIZE': config.GROUP_HEADER_FONT_SIZE,
+                            'DOMAIN_TITLE_FONT_SIZE': config.DOMAIN_TITLE_FONT_SIZE,
+                            'MODULE_FONT_FAMILY': config.FONT_FAMILY,
+                            'MODULE_LINE_HEIGHT': config.MODULE_LINE_HEIGHT,
+                            'DOMAIN_PADDING': config.DOMAIN_PADDING_Y,
+                            'COLUMN_GAP': config.COLUMN_GAP,
+                            'GROUP_HEADER_MARGIN_BOTTOM': config.DOMAIN_TITLE_MARGIN_BOTTOM,
+                            'DOMAIN_BORDER_RADIUS': config.DOMAIN_BORDER_RADIUS,
+                            'GROUP_BORDER_RADIUS': config.GROUP_BORDER_RADIUS,
+                            'MODULE_BORDER_RADIUS': config.MODULE_BORDER_RADIUS,
+                            'DOMAIN_BORDER_WIDTH': config.DOMAIN_BORDER_WIDTH,
                             'ADJUST_MPR': config.ADJUST_MPR,
                             'TARGET_RATIO': config.TARGET_RATIO,
                         }
-
-                        # 如果 UI 参数与默认值不同，立即应用到 Markdown
-                        if self.params != self._original_params[output_path]:
-                            self.log.emit("  应用 UI 参数到 Markdown...")
-                            apply_params_to_md(output_path, self.params, self._original_params[output_path])
 
                     self.log.emit(f"  Markdown生成成功: {output_path}")
                     self._generated_md_files.append(output_path)
@@ -300,6 +302,10 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._generated_md_files = {}  # {excel_path: md_path}
         self._original_params = {}  # {md_path: {param: value}}
+        self._css_state = {}  # {md_path: {css_key: css_value}}
+        self._initial_css = {}  # {md_path: {css_key: css_value}} — 首次生成时的 CSS 值
+        self._pending_params = None
+        self._session_processed = set()  # 本次会话已生成过的 Excel 文件
         self._setup_ui()
         self._setup_connections()
 
@@ -341,8 +347,27 @@ class MainWindow(QMainWindow):
         self.params_section = CollapsibleSection("参数调整", self.params_panel)
         left_layout.addWidget(self.params_section)
 
-        # 弹性空间：收起时把三个栏挤到顶部
-        left_layout.addStretch()
+        # 应用参数按钮
+        self.apply_params_btn = QPushButton("应用参数到 Markdown")
+        self.apply_params_btn.setEnabled(False)
+        self.apply_params_btn.setToolTip("将调整后的参数写入已生成的 Markdown 文件")
+        self.apply_params_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+            QPushButton:disabled {
+                background-color: #ccc;
+            }
+        """)
+        self.apply_params_btn.clicked.connect(self._on_apply_params)
+        left_layout.addWidget(self.apply_params_btn)
 
         # 生成按钮
         self.generate_btn = QPushButton("生成架构图")
@@ -388,7 +413,8 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QComboBox
         format_layout = QHBoxLayout()
         format_layout.addWidget(QLabel("导出格式:"))
-        self.export_format_combo = QComboBox()
+        from .params_panel import NoWheelComboBox
+        self.export_format_combo = NoWheelComboBox()
         self.export_format_combo.addItem("PNG图片", "png")
         self.export_format_combo.addItem("PPTX演示文稿", "pptx")
         self.export_format_combo.addItem("HTML网页", "html")
@@ -485,6 +511,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "警告", "请先选择Excel文件")
             return
 
+        # 如果有 pending 参数，先应用到已有 markdown
+        if self._pending_params and self._generated_md_files:
+            self._apply_pending_params()
+            self._pending_params = None
+            self.apply_params_btn.setEnabled(False)
+
         # 清空图片历史记录
         self.preview_widget.clear()
 
@@ -498,9 +530,9 @@ class MainWindow(QMainWindow):
         # 获取导出格式
         export_format = self._get_export_format()
 
-        # 创建工作线程，传入已有的 MD 文件映射
+        # 创建工作线程
         self._worker = GenerateWorker(files, output_dir, params, export_format,
-                                       existing_md_files=self._generated_md_files)
+                                       session_processed=self._session_processed)
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_finished)
         self._worker.log.connect(self._on_log)
@@ -515,6 +547,96 @@ class MainWindow(QMainWindow):
 
         # 启动工作线程
         self._worker.start()
+
+    def _apply_pending_params(self):
+        """将 pending 参数应用到已有 markdown 文件（仅修改 CSS，不重新生成）"""
+        import re
+        params = self._pending_params
+        applied_count = 0
+
+        for excel_path, md_path in self._generated_md_files.items():
+            if not os.path.exists(md_path):
+                continue
+            orig = self._original_params.get(md_path, {})
+            init_css = self._initial_css.get(md_path, {})
+            if not orig or not init_css:
+                continue
+
+            with open(md_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # --- 颜色直接替换 ---
+            # 注意: 使用 [^}]* 替代 [^}]*，只匹配单个属性值，不跨越属性边界
+            color_map = {
+                'GROUP_BG': (r'(\.group\s*\{[^}]*background:\s*)', 'GROUP_BG'),
+                'GROUP_HEADER_COLOR': (r'(\.group-header\s*\{[^}]*background:\s*)', 'GROUP_HEADER_COLOR'),
+                'MODULE_BG_COLOR': (r'(\.module\s*\{[^}]*background:\s*)', 'MODULE_BG_COLOR'),
+                'DOMAIN_BG': (r'(\.domain-frame-wrapper\s*\{[^}]*background:\s*)', 'DOMAIN_BG'),
+                'DOMAIN_BORDER_COLOR': (r'(\.domain-frame-wrapper\s*\{[^}]*border:\s*(?:\d+(?:\.\d+)?px\s+solid\s+))', 'DOMAIN_BORDER_COLOR'),
+                'DOMAIN_TITLE_COLOR': (r'(\.domain-title\s*\{[^}]*color:\s*)', 'DOMAIN_TITLE_COLOR'),
+                'MODULE_BORDER_COLOR': (r'(\.module\s*\{[^}]*border:\s*\d+(?:\.\d+)?px\s+solid\s+)', 'MODULE_BORDER_COLOR'),
+            }
+            for param_key, (pattern, orig_key) in color_map.items():
+                if param_key in params and orig_key in orig:
+                    old_val = orig[orig_key]
+                    new_val = params[param_key]
+                    if old_val != new_val:
+                        content = re.sub(pattern + re.escape(old_val),
+                                         lambda m, v=new_val: m.group(1) + v, content)
+
+            # --- 数值按比例缩放 ---
+            # 注意: 使用 [^}]* 替代 [^}]*，只匹配单个属性值，不跨越属性边界
+            css_configs = {
+                'MODULE_FONT_SIZE':      ('MODULE_FONT_SIZE_PX',      r'(\.module\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px'),
+                'GROUP_HEADER_FONT_SIZE':('GROUP_HEADER_FONT_SIZE_PX',r'(\.group-header\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px'),
+                'DOMAIN_TITLE_FONT_SIZE':('DOMAIN_TITLE_FONT_SIZE_PX',r'(\.domain-title\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px'),
+                'COL_GAP':               ('COL_GAP_PX',               r'(\.columns\s*\{[^}]*gap:\s*)(\d+(?:\.\d+)?)px'),
+                'ROW_GAP':               ('ROW_GAP_PX',               r'(\.modules\s*\{[^}]*gap:\s*)(\d+(?:\.\d+)?)px'),
+                'COLUMN_GAP':            ('COLUMN_GAP_PX',            r'(\.column\s*\{[^}]*gap:\s*)(\d+(?:\.\d+)?)px'),
+                'DOMAIN_BORDER_RADIUS':  ('DOMAIN_BORDER_RADIUS_PX',  r'(\.domain-frame-wrapper\s*\{[^}]*border-radius:\s*)(\d+(?:\.\d+)?)px'),
+                'GROUP_BORDER_RADIUS':   ('GROUP_BORDER_RADIUS_PX',   r'(\.group\s*\{[^}]*border-radius:\s*)(\d+(?:\.\d+)?)px'),
+                'MODULE_BORDER_RADIUS':  ('MODULE_BORDER_RADIUS_PX',  r'(\.module\s*\{[^}]*border-radius:\s*)(\d+(?:\.\d+)?)px'),
+                'DOMAIN_TITLE_MARGIN_BOTTOM': ('DOMAIN_TITLE_MARGIN_BOTTOM_PX', r'(\.domain-title\s*\{[^}]*margin-bottom:\s*)(\d+(?:\.\d+)?)px'),
+                'GROUP_HEADER_MARGIN_BOTTOM': ('GROUP_HEADER_MARGIN_BOTTOM_PX', r'(\.group-header\s*\{[^}]*margin-bottom:\s*)(\d+(?:\.\d+)?)px'),
+                'DOMAIN_BORDER_WIDTH':   ('DOMAIN_BORDER_WIDTH_PX',   r'(\.domain-frame-wrapper\s*\{[^}]*border:\s*)(\d+(?:\.\d+)?)px(\s+solid)'),
+            }
+            for param_key, (css_key, pattern) in css_configs.items():
+                if param_key in params and css_key in init_css:
+                    config_old = orig.get(param_key, 0)
+                    config_new = params[param_key]
+                    if config_old > 0:
+                        target_css = init_css[css_key] * (config_new / config_old)
+                        m = re.search(pattern, content)
+                        if m:
+                            if param_key == 'DOMAIN_BORDER_WIDTH':
+                                replacement = f'{m.group(1)}{target_css:.0f}px{m.group(3)}'
+                            elif param_key == 'DOMAIN_PADDING':
+                                replacement = f'{m.group(1)}{target_css:.0f}px {float(m.group(3)) * target_css / float(m.group(2)):.0f}px'
+                            elif 'font-size' in pattern:
+                                replacement = f'{m.group(1)}{target_css:.1f}px'
+                            else:
+                                replacement = f'{m.group(1)}{target_css:.0f}px'
+                            content = content[:m.start(2)] + replacement + content[m.end(2):]
+
+            # --- 域内边距（特殊处理：两个值） ---
+            if 'DOMAIN_PADDING' in params and 'DOMAIN_PADDING_Y_PX' in init_css:
+                config_old = orig.get('DOMAIN_PADDING', 0)
+                config_new = params['DOMAIN_PADDING']
+                if config_old > 0:
+                    target_y = init_css['DOMAIN_PADDING_Y_PX'] * (config_new / config_old)
+                    target_x = init_css.get('DOMAIN_PADDING_X_PX', 16) * (config_new / config_old)
+                    m = re.search(r'(\.domain-frame-wrapper\s*\{[^}]*padding:\s*)(\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px', content)
+                    if m:
+                        content = content[:m.start(2)] + f'{target_y:.0f}px {target_x:.0f}px' + content[m.end(3):]
+
+            with open(md_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            self._css_state[md_path] = extract_params_from_md(md_path)
+            applied_count += 1
+
+        self.log_text.append(f"参数已应用到 {applied_count} 个 Markdown 文件")
+        self.statusBar().showMessage(f"参数已应用到 {applied_count} 个文件")
 
     def _get_export_format(self) -> str:
         """获取导出格式"""
@@ -545,6 +667,13 @@ class MainWindow(QMainWindow):
             if self._worker:
                 self._generated_md_files.update(self._worker.get_excel_to_md())
                 self._original_params.update(self._worker.get_original_params())
+
+                # 为新生成的文件提取 CSS 状态（作为后续参数调整的基准）
+                for md_path in self._worker.get_generated_md_files():
+                    if md_path not in self._css_state and os.path.exists(md_path):
+                        css = extract_params_from_md(md_path)
+                        self._css_state[md_path] = css
+                        self._initial_css[md_path] = css.copy()  # 保存不可变基准
 
             self.statusBar().showMessage("生成完成")
 
@@ -584,23 +713,44 @@ class MainWindow(QMainWindow):
         pass
 
     def _on_params_changed(self, params: dict):
-        """参数改变时，直接修改已生成的 Markdown 文件中的 CSS/HTML"""
-        if not self._generated_md_files:
+        """参数改变时，暂存变更，等待用户点击[应用参数]按钮"""
+        self._pending_params = params
+        self.apply_params_btn.setEnabled(bool(self._generated_md_files))
+        self.statusBar().showMessage("参数已调整，点击[应用参数到 Markdown]生效")
+
+    def _on_apply_params(self):
+        """将暂存的参数应用到所有已生成的 Markdown 文件"""
+        if not self._pending_params or not self._generated_md_files:
             return
+
+        params = self._pending_params
+        applied_count = 0
 
         for excel_path, md_path in self._generated_md_files.items():
             if not os.path.exists(md_path):
                 continue
 
-            # 获取该文件的原始参数
             orig = self._original_params.get(md_path, {})
-            if not orig:
+            init_css = self._initial_css.get(md_path, {})
+            if not orig or not init_css:
                 continue
 
-            # 修改 Markdown 中的 CSS/HTML
-            apply_params_to_md(md_path, params, orig)
+            # 复用 md_editor 中已验证的替换逻辑（使用 [^}]* 正则，不会跨越 CSS 规则边界）
+            ok, updated_css = apply_params_to_md(md_path, params, orig, css_baseline=init_css)
+            if ok:
+                self._css_state[md_path] = updated_css or extract_params_from_md(md_path)
+                applied_count += 1
 
-        self.log_text.append("参数已应用到 Markdown 文件，点击[生成架构图]重新渲染")
+        self._pending_params = None
+        self.apply_params_btn.setEnabled(False)
+        self.log_text.append(f"参数已应用到 {applied_count} 个 Markdown 文件")
+        self.statusBar().showMessage(f"参数已应用到 {applied_count} 个文件")
+
+        # 刷新预览
+        if self._generated_md_files:
+            last_md = list(self._generated_md_files.values())[-1]
+            if os.path.exists(last_md):
+                self._show_preview(last_md)
 
     def _on_files_changed(self, files: list):
         """文件选择改变时"""

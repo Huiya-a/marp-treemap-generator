@@ -4,126 +4,152 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Marp Treemap Generator — reads application architecture Excel data and generates Marp-compatible Markdown files that render as treemap rectangle diagrams (one slide per domain). Output can be converted to PPTX via Marp CLI.
+Marp Treemap Generator — reads application architecture Excel data and generates Marp-compatible Markdown files that render as treemap rectangle diagrams (one slide per domain). Output can be converted to PPTX/PNG via Marp CLI. Has both a CLI and a PySide6 GUI (`src/app.py`).
 
 ## Commands
 
 ```bash
 # Install dependencies
-pip install openpyxl numpy
+pip install openpyxl numpy            # CLI mode
+pip install "PySide6>=6.5.0"          # GUI mode (additional)
 
-# Install Marp CLI (for PPT conversion)
+# Install Marp CLI (for PPT/PNG conversion)
 npm install -g @marp-team/marp-cli
 
-# Generate Markdown from all Excel files in data/
+# CLI: Generate Markdown from all Excel files in data/
 python generate_treemap_md.py
 
-# Process a single file (prefix or contains match)
+# CLI: Process a single file (prefix or contains match)
 python generate_treemap_md.py 03
 python generate_treemap_md.py 纪检监察
 
-# Convert output to PPTX
+# Convert output
 marp output/*.md --pptx
+marp output/*.md --images png --allow-local-files
+
+# GUI: Launch graphical interface
+python src/app.py
+
+# Smoke tests (no formal test suite)
+python src/test_simple.py
+python src/test_gui.py
 ```
 
 ## Architecture
 
-**Data flow:** Excel → `data_loader` → `layout` → HTML generation → Marp Markdown → PPTX
+**Data flow:** Excel → `data_loader` → `layout` (two-pass) → HTML generation → Marp Markdown → PPTX/PNG
 
-- **`generate_treemap_md.py`** — Main entry point. Orchestrates loading, layout, HTML rendering, and file output. Contains `_wrap_text` (CJK-aware line breaking) and `_compute_structure` (delegates to layout, returns semantic columns + scale).
-- **`src/config.py`** — All layout constants: canvas size (`13.33×7.5` natural units), module/group dimensions, gaps, colors, and the `ADJUST_MPR` toggle. `TARGET_RATIO` = 16/9.
-- **`src/data_loader.py`** — Reads Excel files. Looks for a sheet containing "应用模块清单", falls back to second sheet. Row 3+: B=domain, D=group, G=module. Returns `(domain_name, {group: [modules]})`.
-- **`src/layout.py`** — Core layout engine. Two code paths by group count:
-  - **≥6 groups:** `_layout_many_groups` — fixed MPR=3, greedy row-filling with target row counts (10→5)
-  - **<6 groups:** `compute_optimal_column_count` + `_assign_groups_to_columns` — dynamic column count (2–4), balances module count + visual rows across columns, optional `_adjust_mpr_for_balance`
+### Core modules
+
+- **`generate_treemap_md.py`** — CLI entry point + HTML rendering. `_compute_structure` runs a two-pass layout: pass 1 measures content bounding box, adjusts canvas to 16:9, pass 2 reruns with adjusted canvas. `generate_marp_md` produces the full Marp Markdown file with embedded CSS+HTML. `_wrap_text` handles CJK-aware line breaking.
+- **`src/config.py`** — All layout constants in "natural units" (canvas 13.33×7.5). Uniform `scale` factor maps to 1280×720 Marp pixel canvas.
+- **`src/data_loader.py`** — Reads Excel. Sheet containing "应用模块清单" (or 2nd sheet). Row 3+: B=domain, D=group, G=module. Returns `(domain_name, {group: [modules]})`.
+- **`src/layout.py`** — Core layout engine (two code paths):
+  - **<6 groups:** `compute_modules_per_row` → `compute_optimal_column_count` (tries 2–4 cols, scores on module imbalance + visual row imbalance + aspect ratio) → `_assign_groups_to_columns` (greedy, largest first, score = `module_dev + vr_dev²`) → `_adjust_mpr_for_balance`
+  - **≥6 groups:** `_layout_many_groups` — fixed MPR=3, greedy bin-packing with target row counts (10→5)
+
+### GUI architecture
+
+Entry: `src/app.py` → `MainWindow` (PySide6 QMainWindow with QSplitter layout).
+
+```
+MainWindow
+├── LEFT PANEL
+│   ├── FileSelector (QListWidget + drag-drop + recent files via QSettings)
+│   ├── FileInfoWidget (Excel metadata + data tree preview)
+│   ├── ParamsPanel (11 controls: 3 ColorButtons, 6 spin boxes, 1 checkbox, 1 ratio)
+│   ├── Generate / Cancel buttons
+│   ├── Export format combo (PNG/PPTX/HTML/both/all)
+│   └── Progress bar
+├── RIGHT PANEL
+│   ├── PreviewWidget (image display + left/right navigation arrows)
+│   └── Log area (QTextEdit)
+└── StatusBar
+```
+
+**Signal flow:** `FileSelector.files_changed` → update `FileInfoWidget`; `ParamsPanel.params_changed` → `md_editor.apply_params_to_md()` (regex-based CSS editing, no re-layout); Generate button → `GenerateWorker(QThread)` → signals back to UI.
+
+**Parameter adjustment mechanism:** The GUI does NOT re-run the layout algorithm for parameter tweaks. Instead, `md_editor.py` directly edits CSS values in existing `.md` files via regex replacement, scaling pixel values proportionally. This works because `config.py` values are imported via `from config import X` (bound at import time), making runtime monkey-patching ineffective for layout recalculation.
+
+**Template storage:** JSON files in `~/.架构图生成器/templates/`.
+
+### Layout hierarchy (CSS nesting)
+
+```
+section → .treemap → .domain-frame-wrapper → .domain-frame
+  → .domain-title + .columns → .column → .group
+    → .group-header + .modules → .mod-row → .module
+```
+
+Modules use flexbox (`<div>`, not `<table>`). Each `.mod-row` gets inline CSS variables `--mod-w`/`--mod-h` for consistent sizing. Incomplete rows center modules via `justify-content: center` (never stretch).
 
 ## Excel Data Format
 
 - Sheet name must contain "应用模块清单" (or falls back to second sheet)
 - Data starts at row 3
-- B column: application domain name (used as slide title)
+- B column: application domain name (slide title)
 - D column: application group name
 - G column: first-level module name
 
-## Key Layout Concepts
-
-- All dimensions in `config.py` are in "natural" units; the layout engine computes a uniform `scale` factor to fit the Marp slide canvas.
-- `modules_per_row` (mpr) is computed per group via `compute_modules_per_row`, targeting a column/row ratio ≈ 1.5.
-- `_pack_groups_into_rows` packs groups within a column into horizontal rows, constrained by width and row-count consistency.
-- Colors are defined in `config.py` and injected into the Marp frontmatter CSS in `generate_marp_md.py`.
-
-### Key Configuration Parameters (`src/config.py`)
+## Key Configuration Parameters (`src/config.py`)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `CANVAS_W` / `CANVAS_H` | 13.33 / 7.5 | Natural unit canvas size |
 | `CANVAS_W_PX` / `CANVAS_H_PX` | 1280 / 720 | Marp pixel dimensions |
-| `MODULE_W` / `MODULE_H` | 1.5 / 0.5 | Module natural dimensions |
-| `COL_GAP` / `ROW_GAP` | 0.4 / 0.25 | Column/row gaps (natural units) |
+| `MODULE_W` / `MODULE_H` | 1.2 / 0.4 | Module natural dimensions (3:1 ratio) |
+| `COL_GAP` / `ROW_GAP` | 0.2 / 0.12 | Column/row gaps (natural units) |
 | `ADJUST_MPR` | True | Enable mpr balance adjustment |
+| `TARGET_RATIO` | 16/9 | Target aspect ratio |
 
-### Color Scheme
+## Layout Constraints
 
-| Element | Color |
-|---------|-------|
-| Domain border | `#2C3E50` |
-| Domain background | `#F0F4F8` |
-| Group background | `#E0E0E0` |
-| Group header | `#1A73E8` |
-| Module background | `#C4D8FC` |
+### Stable core (do not change)
 
-## 当前稳定版面状态（2026-06-02 确认）
+1. **Module grid:** Fixed-width rectangles via `--mod-w` CSS variable + `flex: 0 0 auto`. Incomplete rows use `justify-content: center` — never stretch to fill.
+2. **Column assignment:** `_assign_groups_to_columns` uses `score = module_dev + vr_dev²` (row-count deviation squared penalty) to balance visual height.
+3. **Two layout paths:** <6 groups → dynamic column count + balance scoring; ≥6 groups → fixed MPR=3 greedy bin-packing. The 6-group threshold must not change.
+4. **Marp CSS constraints:** `section { display: block; position: relative }`, `.treemap { position: absolute }`, flexbox not grid/table.
 
-版面已调试到接近期望形态，后续调整必须遵守以下约束，**不可破坏现有大体轮廓框架**。
+### Safe to adjust
 
-### 已稳定的核心结构（不可改动）
+- Colors in `src/config.py` (GROUP_BG, MODULE_BG_COLOR, etc.)
+- Spacing in `src/config.py` (COL_GAP, ROW_GAP, OUTER_PAD — ≤20% change)
+- Line-break strategy in `_wrap_text`
+- Font sizes, line heights, border radii, border widths
+- MPR target ratio in `compute_modules_per_row` (current 1.5, safe range 1.2–1.8)
+- Scoring weights in `_assign_groups_to_columns` (current `module_dev + vr_dev²`, minor tuning OK)
 
-1. **整体布局层级**：`section → .treemap → .domain-frame-wrapper → .domain-frame → .domain-title + .columns → .column → .group → .group-header + .modules → .mod-row → .module`
-2. **模块格子为固定宽度矩形**：通过 CSS 变量 `--mod-w` 控制，不满一行时 `justify-content: center` 居中显示，**不拉伸填满整行**
-3. **列分配算法**：`_assign_groups_to_columns` 使用 `score = module_dev + vr_dev²`（行数偏差平方惩罚）平衡视觉高度
-4. **两套布局路径**：组数 < 6 用动态列数 + 平衡评分；≥ 6 用固定 mpr=3 贪心填充
-5. **Marp CSS 约束**：section 必须 `display: block`；treemap 必须 `position: absolute`；模块用 flexbox 不用 table
+### Forbidden changes
 
-### 可安全调整的范围（不影响整体轮廓）
+- Module fixed-width mechanism (`--mod-w` + `flex: 0 0 auto`)
+- `justify-content: center` centering strategy
+- section / `.treemap` positioning (`position: absolute` + `display: block`)
+- `.column` `flex: 1` equal-width distribution
+- Two-path layout switching logic (6-group threshold)
+- Marp frontmatter structure (`marp: true` + `style: |` block)
 
-- `src/config.py` 中的**颜色值**（GROUP_BG、MODULE_BG_COLOR 等）
-- `src/config.py` 中的**间距微调**（COL_GAP、ROW_GAP、OUTER_PAD 等，幅度 ≤ 20%）
-- `_wrap_text` 中的**换行策略**（分隔符列表、断行位置偏好）
-- CSS 中的**字体大小、行高、圆角、边框宽度**
-- `compute_modules_per_row` 中的**目标比值**（当前 1.5，可在 1.2~1.8 范围调整）
-- `_assign_groups_to_columns` 中的**评分权重**（当前 module_dev + vr_dev²，权重可微调）
+### Verification after changes
 
-### 禁止改动的部分（会破坏整体框架）
-
-- 模块格子的固定宽度机制（`--mod-w` CSS 变量 + `flex: 0 0 auto`）
-- `justify-content: center` 的居中策略（改为其他对齐方式会导致版面错乱）
-- section / .treemap 的定位方式（`position: absolute` + `display: block`）
-- `.column` 的 `flex: 1` 等宽分配
-- 两套布局路径的切换逻辑（组数 6 为分界）
-- Marp frontmatter 的基本结构（`marp: true` + `style: |` 块）
-
-### 调整后的验证流程
-
-每次改动后必须执行：
 ```bash
-python generate_treemap_md.py          # 重新生成
-marp output/*.md --images png --allow-local-files  # 生成图片
-# 逐张检查 4 张图，确认：
-# 1. 模块格子大小一致、居中正确
-# 2. 列高基本平衡
-# 3. 文字可读、换行合理
-# 4. 无溢出或裁切
+python generate_treemap_md.py          # regenerate
+marp output/*.md --images png --allow-local-files  # generate images
+# check all 4 images for:
+# 1. Module boxes same size, correctly centered
+# 2. Column heights roughly balanced
+# 3. Text readable, line breaks reasonable
+# 4. No overflow or clipping
 ```
 
 ## Marp CSS Pitfalls
 
-Marp wraps all content in a `<section>` element with its own flex layout (`display: flex; flex-direction: column`). Key rules to avoid layout breakage:
+Marp wraps all content in a `<section>` element with its own flex layout (`display: flex; flex-direction: column`). Key rules:
 
-- **Override `section`**: Must set `section { display: block; position: relative; }` in the style block, otherwise the default flex-column behavior forces content into a single vertical column.
-- **`.treemap` fill the slide**: Use `position: absolute; top/left/right/bottom: 0` on `.treemap` to force it to fill the entire section. The section must be `position: relative`.
-- **CSS Grid doesn't work**: Marp's default theme overrides `display: grid` on child elements. Use `<div>` with flexbox instead.
-- **Module grid uses flexbox, not `<table>`**: Marp's SVG wrapper forces `border-collapse: collapse` on tables, making `height`/`max-height` on `<td>` unreliable. The module grid uses `<div>` flexbox instead (`.modules > .mod-row > .module`). Each `.mod-row` has a fixed `height`, and `.module` uses inline `width` (calculated per group from mpr). Empty `.module-empty` cells fill incomplete last rows to prevent stretching.
-- **`.column` flex**: Must use `flex: 1 1 0` — `flex: 0 0 auto` doesn't work in Marp v4.4.0.
-- **`!important` partially stripped**: Marp's CSS processing strips `!important` from some properties (e.g., `border-collapse`, `border-spacing`) but not others (e.g., `width`, `display`). Don't rely on `!important` for all properties.
-- **Output filenames**: Spaces in filenames break Marp CLI. The generator replaces spaces with underscores (`safe_stem`).
+- **Override `section`**: Must set `section { display: block; position: relative; }`, otherwise flex-column forces single vertical column.
+- **`.treemap` fill the slide**: Use `position: absolute; top/left/right/bottom: 0`. Section must be `position: relative`.
+- **CSS Grid doesn't work**: Marp's default theme overrides `display: grid`. Use `<div>` with flexbox.
+- **Module grid uses flexbox, not `<table>`**: Marp's SVG wrapper forces `border-collapse: collapse` on tables. Use `.modules > .mod-row > .module` flexbox. Empty `.module-empty` cells prevent row stretching.
+- **`.column` flex**: Must use `flex: 1 1 0` — `flex: 0 0 auto` fails in Marp v4.4.0.
+- **`!important` partially stripped**: Marp strips `!important` from some properties but not others. Don't rely on it consistently.
+- **Output filenames**: Spaces break Marp CLI. Generator replaces spaces with underscores (`safe_stem`).
 - **Marp frontmatter `style` block**: Uses double braces `{{` / `}}` for Python f-string escaping.

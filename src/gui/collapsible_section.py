@@ -7,7 +7,7 @@
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QPushButton, QScrollArea
+    QWidget, QVBoxLayout, QPushButton, QScrollArea, QSizePolicy
 )
 from PySide6.QtCore import Qt
 
@@ -63,6 +63,10 @@ class CollapsibleSection(QWidget):
         self._update_stretch(visible)
         if visible:
             self._check_scroll()
+        # 强制父布局重新计算，让 stretch 立即生效
+        parent = self.parentWidget()
+        if parent and parent.layout():
+            parent.layout().activate()
 
     def _update_stretch(self, expanded: bool):
         """展开时在父布局中设置 stretch=1 撑满空间，收起时恢复 stretch=0"""
@@ -91,28 +95,33 @@ class CollapsibleSection(QWidget):
             self._check_scroll()
 
     def _check_scroll(self):
-        """根据内容高度决定是否需要滚动条。"""
-        available = self.height() - self._header.height()
-        content_h = self._content_widget.sizeHint().height()
+        """根据内容高度决定是否需要滚动条。
+
+        始终用 QScrollArea 包裹内容，让 stretch 撑满剩余空间，
+        内容超出时出现滚动条，未超出时自然显示。
+        """
         layout = self.layout()
+        if self._scroll_area is not None:
+            # 已经有滚动区域，确保它可见并刷新
+            self._scroll_area.setVisible(True)
+            return
 
-        if content_h > available and self._scroll_area is None:
-            # 内容超出 → 包裹 QScrollArea
-            self._scroll_area = QScrollArea()
-            self._scroll_area.setWidgetResizable(True)
-            self._scroll_area.setFrameShape(QScrollArea.NoFrame)
-            self._scroll_area.setWidget(self._content_widget)
+        # 始终用 QScrollArea 包裹，让 stretch 生效
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setFrameShape(QScrollArea.NoFrame)
+        self._scroll_area.setWidget(self._content_widget)
 
-            layout.removeWidget(self._content_widget)
-            layout.insertWidget(self._content_index, self._scroll_area)
+        # 关键：让 QScrollArea 和内容 widget 都能被拉伸
+        self._scroll_area.setSizePolicy(
+            QSizePolicy.Preferred, QSizePolicy.Expanding
+        )
+        self._content_widget.setSizePolicy(
+            QSizePolicy.Preferred, QSizePolicy.Expanding
+        )
 
-        elif content_h <= available and self._scroll_area is not None:
-            # 内容未超出 → 移除 QScrollArea，恢复直接显示
-            self._scroll_area.setWidget(None)
-            layout.removeWidget(self._scroll_area)
-            self._scroll_area.deleteLater()
-            self._scroll_area = None
-            layout.insertWidget(self._content_index, self._content_widget)
+        layout.removeWidget(self._content_widget)
+        layout.insertWidget(self._content_index, self._scroll_area)
 
     def set_expanded(self, expanded: bool):
         self._header.setChecked(expanded)

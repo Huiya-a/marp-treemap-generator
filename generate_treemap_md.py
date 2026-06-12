@@ -30,6 +30,14 @@ from src.config import (
     GROUP_BG, GROUP_BORDER, GROUP_HEADER_COLOR, MODULE_BG_COLOR,
     MODULE_FONT_SIZE, GROUP_HEADER_FONT_SIZE,
     CANVAS_W_PX,
+    DOMAIN_BG, DOMAIN_BORDER_COLOR, DOMAIN_TITLE_COLOR,
+    MODULE_TEXT_COLOR, MODULE_BORDER_COLOR,
+    DOMAIN_BORDER_WIDTH, DOMAIN_BORDER_RADIUS,
+    DOMAIN_PADDING_X, DOMAIN_PADDING_Y,
+    DOMAIN_TITLE_FONT_SIZE, DOMAIN_TITLE_MARGIN_BOTTOM,
+    GROUP_BORDER_RADIUS, GROUP_HEADER_MARGIN_BOTTOM, COLUMN_GAP,
+    MODULE_BORDER_RADIUS, MODULE_LINE_HEIGHT,
+    FONT_FAMILY,
 )
 
 
@@ -593,10 +601,10 @@ style: |
     width: {domain_frame_w:.0f}px;
     height: 100%;
     flex-shrink: 0;
-    background: #F0F4F8;
-    border: 3px solid #2C3E50;
-    border-radius: 12px;
-    padding: 12px 16px;
+    background: {DOMAIN_BG};
+    border: {DOMAIN_BORDER_WIDTH}px solid {DOMAIN_BORDER_COLOR};
+    border-radius: {DOMAIN_BORDER_RADIUS}px;
+    padding: {DOMAIN_PADDING_Y}px {DOMAIN_PADDING_X}px;
     box-sizing: border-box;
   }}
   .domain-frame {{
@@ -609,12 +617,12 @@ style: |
   }}
   .domain-title {{
     text-align: center;
-    font-size: 22px;
+    font-size: {DOMAIN_TITLE_FONT_SIZE}px;
     font-weight: bold;
-    color: #2C3E50;
-    margin-bottom: 8px;
+    color: {DOMAIN_TITLE_COLOR};
+    margin-bottom: {DOMAIN_TITLE_MARGIN_BOTTOM}px;
     flex-shrink: 0;
-    font-family: "Microsoft YaHei", sans-serif;
+    font-family: {FONT_FAMILY};
   }}
   .columns {{
     display: flex !important;
@@ -628,13 +636,13 @@ style: |
   .column {{
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: {COLUMN_GAP}px;
     min-width: 0;
   }}
   .group {{
     background: {GROUP_BG};
     border: 1.5px solid {GROUP_BORDER};
-    border-radius: 6px;
+    border-radius: {GROUP_BORDER_RADIUS}px;
     padding: {default_group_pad_val};
     display: flex !important;
     flex-direction: column;
@@ -648,9 +656,9 @@ style: |
     font-weight: bold;
     padding: 6px 8px;
     border-radius: 4px;
-    margin-bottom: 4px;
+    margin-bottom: {GROUP_HEADER_MARGIN_BOTTOM}px;
     flex-shrink: 0;
-    font-family: "Microsoft YaHei", sans-serif;
+    font-family: {FONT_FAMILY};
   }}
   .modules {{
     display: flex !important;
@@ -674,14 +682,14 @@ style: |
     align-items: center !important;
     justify-content: center !important;
     background: {MODULE_BG_COLOR};
-    border: 1px solid white;
-    border-radius: 3px;
+    border: 1px solid {MODULE_BORDER_COLOR};
+    border-radius: {MODULE_BORDER_RADIUS}px;
     text-align: center;
     font-size: {default_module_font_val};
     font-weight: 500;
-    color: #1A1A1A;
-    font-family: "Microsoft YaHei", sans-serif;
-    line-height: 1.3;
+    color: {MODULE_TEXT_COLOR};
+    font-family: {FONT_FAMILY};
+    line-height: {MODULE_LINE_HEIGHT};
   }}
 ---
 

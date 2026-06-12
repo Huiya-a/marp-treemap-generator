@@ -8,7 +8,8 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QSpinBox, QDoubleSpinBox, QCheckBox,
-    QColorDialog, QPushButton, QMessageBox, QDialog
+    QColorDialog, QPushButton, QMessageBox, QDialog,
+    QComboBox, QSizePolicy
 )
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QColor, QWheelEvent
@@ -38,6 +39,13 @@ class NoWheelDoubleSpinBox(QDoubleSpinBox):
 
     def wheelEvent(self, event: QWheelEvent):
         # 忽略滚轮事件
+        event.ignore()
+
+
+class NoWheelComboBox(QComboBox):
+    """禁用滚轮事件的QComboBox"""
+
+    def wheelEvent(self, event: QWheelEvent):
         event.ignore()
 
 
@@ -100,9 +108,14 @@ class ParamsPanel(QWidget):
         # 直接布局，由外层 CollapsibleSection 统一管理滚动
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        # 让面板可以被拉伸
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         # ========== 颜色参数组 ==========
         color_group = QGroupBox("颜色设置")
+        color_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         color_layout = QVBoxLayout(color_group)
 
         # 组背景色
@@ -135,10 +148,51 @@ class ParamsPanel(QWidget):
         row.addStretch()
         color_layout.addLayout(row)
 
+        # 域背景色
+        row = QHBoxLayout()
+        row.addWidget(QLabel("域背景色:"))
+        self.domain_bg_color = ColorButton(config.DOMAIN_BG)
+        self.domain_bg_color.setToolTip("域外框的背景颜色")
+        self.domain_bg_color.color_changed.connect(self._on_params_changed)
+        row.addWidget(self.domain_bg_color)
+        row.addStretch()
+        color_layout.addLayout(row)
+
+        # 域边框色
+        row = QHBoxLayout()
+        row.addWidget(QLabel("域边框色:"))
+        self.domain_border_color = ColorButton(config.DOMAIN_BORDER_COLOR)
+        self.domain_border_color.setToolTip("域外框的边框颜色")
+        self.domain_border_color.color_changed.connect(self._on_params_changed)
+        row.addWidget(self.domain_border_color)
+        row.addStretch()
+        color_layout.addLayout(row)
+
+        # 域标题色
+        row = QHBoxLayout()
+        row.addWidget(QLabel("域标题色:"))
+        self.domain_title_color = ColorButton(config.DOMAIN_TITLE_COLOR)
+        self.domain_title_color.setToolTip("域标题的文字颜色")
+        self.domain_title_color.color_changed.connect(self._on_params_changed)
+        row.addWidget(self.domain_title_color)
+        row.addStretch()
+        color_layout.addLayout(row)
+
+        # 模块边框色
+        row = QHBoxLayout()
+        row.addWidget(QLabel("模块边框色:"))
+        self.module_border_color = ColorButton(config.MODULE_BORDER_COLOR)
+        self.module_border_color.setToolTip("模块格子的边框颜色")
+        self.module_border_color.color_changed.connect(self._on_params_changed)
+        row.addWidget(self.module_border_color)
+        row.addStretch()
+        color_layout.addLayout(row)
+
         layout.addWidget(color_group)
 
         # ========== 尺寸参数组 ==========
         size_group = QGroupBox("尺寸设置")
+        size_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         size_layout = QVBoxLayout(size_group)
 
         # 模块宽度
@@ -195,8 +249,111 @@ class ParamsPanel(QWidget):
 
         layout.addWidget(size_group)
 
+        # ========== 间距参数组 ==========
+        spacing_group = QGroupBox("间距设置")
+        spacing_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        spacing_layout = QVBoxLayout(spacing_group)
+
+        # 域内边距
+        row = QHBoxLayout()
+        row.addWidget(QLabel("域内边距:"))
+        self.domain_padding_spin = NoWheelSpinBox()
+        self.domain_padding_spin.setRange(4, 32)
+        self.domain_padding_spin.setValue(config.DOMAIN_PADDING_Y)
+        self.domain_padding_spin.setToolTip("域外框的内边距 (4-32px)")
+        self.domain_padding_spin.valueChanged.connect(self._on_params_changed)
+        row.addWidget(self.domain_padding_spin)
+        spacing_layout.addLayout(row)
+
+        # 列内组间距
+        row = QHBoxLayout()
+        row.addWidget(QLabel("列内组间距:"))
+        self.column_gap_spin = NoWheelDoubleSpinBox()
+        self.column_gap_spin.setRange(2, 16)
+        self.column_gap_spin.setSingleStep(1)
+        self.column_gap_spin.setValue(config.COLUMN_GAP)
+        self.column_gap_spin.setDecimals(0)
+        self.column_gap_spin.setToolTip("同一列内组与组之间的间距 (2-16px)")
+        self.column_gap_spin.valueChanged.connect(self._on_params_changed)
+        row.addWidget(self.column_gap_spin)
+        spacing_layout.addLayout(row)
+
+        # 标题下方间距
+        row = QHBoxLayout()
+        row.addWidget(QLabel("标题下方间距:"))
+        self.title_margin_spin = NoWheelDoubleSpinBox()
+        self.title_margin_spin.setRange(2, 16)
+        self.title_margin_spin.setSingleStep(1)
+        self.title_margin_spin.setValue(config.DOMAIN_TITLE_MARGIN_BOTTOM)
+        self.title_margin_spin.setDecimals(0)
+        self.title_margin_spin.setToolTip("域标题与内容之间的间距 (2-16px)")
+        self.title_margin_spin.valueChanged.connect(self._on_params_changed)
+        row.addWidget(self.title_margin_spin)
+        spacing_layout.addLayout(row)
+
+        layout.addWidget(spacing_group)
+
+        # ========== 圆角参数组 ==========
+        radius_group = QGroupBox("圆角设置")
+        radius_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        radius_layout = QVBoxLayout(radius_group)
+
+        # 域外框圆角
+        row = QHBoxLayout()
+        row.addWidget(QLabel("域外框圆角:"))
+        self.domain_radius_spin = NoWheelSpinBox()
+        self.domain_radius_spin.setRange(0, 24)
+        self.domain_radius_spin.setValue(config.DOMAIN_BORDER_RADIUS)
+        self.domain_radius_spin.setToolTip("域外框的圆角半径 (0-24px)")
+        self.domain_radius_spin.valueChanged.connect(self._on_params_changed)
+        row.addWidget(self.domain_radius_spin)
+        radius_layout.addLayout(row)
+
+        # 组圆角
+        row = QHBoxLayout()
+        row.addWidget(QLabel("组圆角:"))
+        self.group_radius_spin = NoWheelSpinBox()
+        self.group_radius_spin.setRange(0, 16)
+        self.group_radius_spin.setValue(config.GROUP_BORDER_RADIUS)
+        self.group_radius_spin.setToolTip("应用组的圆角半径 (0-16px)")
+        self.group_radius_spin.valueChanged.connect(self._on_params_changed)
+        row.addWidget(self.group_radius_spin)
+        radius_layout.addLayout(row)
+
+        # 模块圆角
+        row = QHBoxLayout()
+        row.addWidget(QLabel("模块圆角:"))
+        self.module_radius_spin = NoWheelSpinBox()
+        self.module_radius_spin.setRange(0, 12)
+        self.module_radius_spin.setValue(config.MODULE_BORDER_RADIUS)
+        self.module_radius_spin.setToolTip("模块格子的圆角半径 (0-12px)")
+        self.module_radius_spin.valueChanged.connect(self._on_params_changed)
+        row.addWidget(self.module_radius_spin)
+        radius_layout.addLayout(row)
+
+        layout.addWidget(radius_group)
+
+        # ========== 边框参数组 ==========
+        border_group = QGroupBox("边框设置")
+        border_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        border_layout = QVBoxLayout(border_group)
+
+        # 域边框宽度
+        row = QHBoxLayout()
+        row.addWidget(QLabel("域边框宽度:"))
+        self.domain_border_width_spin = NoWheelSpinBox()
+        self.domain_border_width_spin.setRange(0, 6)
+        self.domain_border_width_spin.setValue(config.DOMAIN_BORDER_WIDTH)
+        self.domain_border_width_spin.setToolTip("域外框的边框宽度 (0-6px)")
+        self.domain_border_width_spin.valueChanged.connect(self._on_params_changed)
+        row.addWidget(self.domain_border_width_spin)
+        border_layout.addLayout(row)
+
+        layout.addWidget(border_group)
+
         # ========== 字体参数组 ==========
         font_group = QGroupBox("字体设置")
+        font_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         font_layout = QVBoxLayout(font_group)
 
         # 模块字号
@@ -221,10 +378,52 @@ class ParamsPanel(QWidget):
         row.addWidget(self.header_font_spin)
         font_layout.addLayout(row)
 
+        # 域标题字号
+        row = QHBoxLayout()
+        row.addWidget(QLabel("域标题字号:"))
+        self.domain_title_font_spin = NoWheelSpinBox()
+        self.domain_title_font_spin.setRange(14, 36)
+        self.domain_title_font_spin.setValue(config.DOMAIN_TITLE_FONT_SIZE)
+        self.domain_title_font_spin.setToolTip("域标题的字体大小 (14-36px)")
+        self.domain_title_font_spin.valueChanged.connect(self._on_params_changed)
+        row.addWidget(self.domain_title_font_spin)
+        font_layout.addLayout(row)
+
+        # 模块字体族
+        row = QHBoxLayout()
+        row.addWidget(QLabel("模块字体:"))
+        self.font_family_combo = NoWheelComboBox()
+        self.font_family_combo.addItems([
+            "Microsoft YaHei",
+            "SimSun",
+            "SimHei",
+            "Arial",
+            "Segoe UI",
+            "Helvetica",
+        ])
+        self.font_family_combo.setToolTip("模块文字的字体")
+        self.font_family_combo.currentTextChanged.connect(self._on_params_changed)
+        row.addWidget(self.font_family_combo)
+        font_layout.addLayout(row)
+
+        # 模块行高
+        row = QHBoxLayout()
+        row.addWidget(QLabel("模块行高:"))
+        self.module_line_height_spin = NoWheelDoubleSpinBox()
+        self.module_line_height_spin.setRange(1.0, 2.0)
+        self.module_line_height_spin.setSingleStep(0.1)
+        self.module_line_height_spin.setValue(config.MODULE_LINE_HEIGHT)
+        self.module_line_height_spin.setDecimals(1)
+        self.module_line_height_spin.setToolTip("模块文字的行高倍数 (1.0-2.0)")
+        self.module_line_height_spin.valueChanged.connect(self._on_params_changed)
+        row.addWidget(self.module_line_height_spin)
+        font_layout.addLayout(row)
+
         layout.addWidget(font_group)
 
         # ========== 布局参数组 ==========
         layout_group = QGroupBox("布局设置")
+        layout_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         layout_layout = QVBoxLayout(layout_group)
 
         # 启用MPR平衡
@@ -283,28 +482,63 @@ class ParamsPanel(QWidget):
 
     def get_params(self) -> dict:
         """获取当前所有参数"""
+        # 获取字体族（需要加上引号和 sans-serif 后缀）
+        font_family_raw = self.font_family_combo.currentText()
+        font_family = f'"{font_family_raw}", sans-serif'
+
         return {
+            # 颜色
             'GROUP_BG': self.group_bg_color.get_color(),
             'GROUP_HEADER_COLOR': self.group_header_color.get_color(),
             'MODULE_BG_COLOR': self.module_bg_color.get_color(),
+            'DOMAIN_BG': self.domain_bg_color.get_color(),
+            'DOMAIN_BORDER_COLOR': self.domain_border_color.get_color(),
+            'DOMAIN_TITLE_COLOR': self.domain_title_color.get_color(),
+            'MODULE_BORDER_COLOR': self.module_border_color.get_color(),
+            # 尺寸
             'MODULE_W': self.module_w_spin.value(),
             'MODULE_H': self.module_h_spin.value(),
             'COL_GAP': self.col_gap_spin.value(),
             'ROW_GAP': self.row_gap_spin.value(),
+            # 字体
             'MODULE_FONT_SIZE': self.module_font_spin.value(),
             'GROUP_HEADER_FONT_SIZE': self.header_font_spin.value(),
+            'DOMAIN_TITLE_FONT_SIZE': self.domain_title_font_spin.value(),
+            'MODULE_FONT_FAMILY': font_family,
+            'MODULE_LINE_HEIGHT': self.module_line_height_spin.value(),
+            # 间距
+            'DOMAIN_PADDING': self.domain_padding_spin.value(),
+            'COLUMN_GAP': self.column_gap_spin.value(),
+            'GROUP_HEADER_MARGIN_BOTTOM': self.title_margin_spin.value(),
+            # 圆角
+            'DOMAIN_BORDER_RADIUS': self.domain_radius_spin.value(),
+            'GROUP_BORDER_RADIUS': self.group_radius_spin.value(),
+            'MODULE_BORDER_RADIUS': self.module_radius_spin.value(),
+            # 边框
+            'DOMAIN_BORDER_WIDTH': self.domain_border_width_spin.value(),
+            # 布局
             'ADJUST_MPR': self.adjust_mpr_check.isChecked(),
             'TARGET_RATIO': self.target_ratio_spin.value(),
         }
 
     def set_params(self, params: dict):
         """设置参数"""
+        # 颜色
         if 'GROUP_BG' in params:
             self.group_bg_color.set_color(params['GROUP_BG'])
         if 'GROUP_HEADER_COLOR' in params:
             self.group_header_color.set_color(params['GROUP_HEADER_COLOR'])
         if 'MODULE_BG_COLOR' in params:
             self.module_bg_color.set_color(params['MODULE_BG_COLOR'])
+        if 'DOMAIN_BG' in params:
+            self.domain_bg_color.set_color(params['DOMAIN_BG'])
+        if 'DOMAIN_BORDER_COLOR' in params:
+            self.domain_border_color.set_color(params['DOMAIN_BORDER_COLOR'])
+        if 'DOMAIN_TITLE_COLOR' in params:
+            self.domain_title_color.set_color(params['DOMAIN_TITLE_COLOR'])
+        if 'MODULE_BORDER_COLOR' in params:
+            self.module_border_color.set_color(params['MODULE_BORDER_COLOR'])
+        # 尺寸
         if 'MODULE_W' in params:
             self.module_w_spin.setValue(params['MODULE_W'])
         if 'MODULE_H' in params:
@@ -313,10 +547,40 @@ class ParamsPanel(QWidget):
             self.col_gap_spin.setValue(params['COL_GAP'])
         if 'ROW_GAP' in params:
             self.row_gap_spin.setValue(params['ROW_GAP'])
+        # 字体
         if 'MODULE_FONT_SIZE' in params:
             self.module_font_spin.setValue(params['MODULE_FONT_SIZE'])
         if 'GROUP_HEADER_FONT_SIZE' in params:
             self.header_font_spin.setValue(params['GROUP_HEADER_FONT_SIZE'])
+        if 'DOMAIN_TITLE_FONT_SIZE' in params:
+            self.domain_title_font_spin.setValue(params['DOMAIN_TITLE_FONT_SIZE'])
+        if 'MODULE_FONT_FAMILY' in params:
+            # 从 "FontName", sans-serif 中提取字体名
+            raw = params['MODULE_FONT_FAMILY']
+            font_name = raw.split('"')[1] if '"' in raw else raw
+            idx = self.font_family_combo.findText(font_name)
+            if idx >= 0:
+                self.font_family_combo.setCurrentIndex(idx)
+        if 'MODULE_LINE_HEIGHT' in params:
+            self.module_line_height_spin.setValue(params['MODULE_LINE_HEIGHT'])
+        # 间距
+        if 'DOMAIN_PADDING' in params:
+            self.domain_padding_spin.setValue(params['DOMAIN_PADDING'])
+        if 'COLUMN_GAP' in params:
+            self.column_gap_spin.setValue(params['COLUMN_GAP'])
+        if 'GROUP_HEADER_MARGIN_BOTTOM' in params:
+            self.title_margin_spin.setValue(params['GROUP_HEADER_MARGIN_BOTTOM'])
+        # 圆角
+        if 'DOMAIN_BORDER_RADIUS' in params:
+            self.domain_radius_spin.setValue(params['DOMAIN_BORDER_RADIUS'])
+        if 'GROUP_BORDER_RADIUS' in params:
+            self.group_radius_spin.setValue(params['GROUP_BORDER_RADIUS'])
+        if 'MODULE_BORDER_RADIUS' in params:
+            self.module_radius_spin.setValue(params['MODULE_BORDER_RADIUS'])
+        # 边框
+        if 'DOMAIN_BORDER_WIDTH' in params:
+            self.domain_border_width_spin.setValue(params['DOMAIN_BORDER_WIDTH'])
+        # 布局
         if 'ADJUST_MPR' in params:
             self.adjust_mpr_check.setChecked(params['ADJUST_MPR'])
         if 'TARGET_RATIO' in params:
@@ -328,12 +592,26 @@ class ParamsPanel(QWidget):
             'GROUP_BG': config.GROUP_BG,
             'GROUP_HEADER_COLOR': config.GROUP_HEADER_COLOR,
             'MODULE_BG_COLOR': config.MODULE_BG_COLOR,
+            'DOMAIN_BG': config.DOMAIN_BG,
+            'DOMAIN_BORDER_COLOR': config.DOMAIN_BORDER_COLOR,
+            'DOMAIN_TITLE_COLOR': config.DOMAIN_TITLE_COLOR,
+            'MODULE_BORDER_COLOR': config.MODULE_BORDER_COLOR,
             'MODULE_W': config.MODULE_W,
             'MODULE_H': config.MODULE_H,
             'COL_GAP': config.COL_GAP,
             'ROW_GAP': config.ROW_GAP,
             'MODULE_FONT_SIZE': config.MODULE_FONT_SIZE,
             'GROUP_HEADER_FONT_SIZE': config.GROUP_HEADER_FONT_SIZE,
+            'DOMAIN_TITLE_FONT_SIZE': config.DOMAIN_TITLE_FONT_SIZE,
+            'MODULE_FONT_FAMILY': config.FONT_FAMILY,
+            'MODULE_LINE_HEIGHT': config.MODULE_LINE_HEIGHT,
+            'DOMAIN_PADDING': config.DOMAIN_PADDING_Y,
+            'COLUMN_GAP': config.COLUMN_GAP,
+            'GROUP_HEADER_MARGIN_BOTTOM': config.DOMAIN_TITLE_MARGIN_BOTTOM,
+            'DOMAIN_BORDER_RADIUS': config.DOMAIN_BORDER_RADIUS,
+            'GROUP_BORDER_RADIUS': config.GROUP_BORDER_RADIUS,
+            'MODULE_BORDER_RADIUS': config.MODULE_BORDER_RADIUS,
+            'DOMAIN_BORDER_WIDTH': config.DOMAIN_BORDER_WIDTH,
             'ADJUST_MPR': config.ADJUST_MPR,
             'TARGET_RATIO': config.TARGET_RATIO,
         })
