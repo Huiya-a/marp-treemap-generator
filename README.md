@@ -13,7 +13,12 @@
 - ✅ **文件选择**: 支持选择单个或多个 Excel 文件，支持拖拽导入
 - ✅ **参数调整**: 可以调整颜色、间距、字体等参数
 - ✅ **批量处理**: 支持多文件批量生成
-- ✅ **多种输出**: 支持 Markdown、PPTX、PNG 格式
+- ✅ **多种输出**: 支持 Markdown、PPTX、PNG、HTML 格式及组合导出
+- ✅ **模板管理**: 保存和加载参数配置模板
+- ✅ **历史记录**: 使用QSettings存储最近打开的文件
+- ✅ **快捷键**: Ctrl+O 打开、Ctrl+S 保存、Ctrl+Enter 生成、Ctrl+Q 退出
+- ✅ **可折叠面板**: 左侧各区域支持展开/收起
+- ✅ **会话级复用**: 已生成的 Markdown 在同一会话内不重复生成
 
 ## 快速开始
 
@@ -99,12 +104,15 @@ marp_workspace/
 │   ├── data_loader.py             # Excel 数据加载
 │   ├── layout.py                  # Treemap 布局算法
 │   └── gui/                       # GUI 模块
-│       ├── main_window.py         # 主窗口
-│       ├── file_selector.py       # 文件选择器
-│       ├── preview_widget.py      # 预览组件
-│       └── params_panel.py        # 参数面板
+│       ├── main_window.py         # 主窗口 + GenerateWorker线程
+│       ├── file_selector.py       # 文件选择器（拖拽、历史记录）
+│       ├── file_info_widget.py    # 文件信息预览
+│       ├── preview_widget.py      # 预览组件（多图切换）
+│       ├── params_panel.py        # 参数面板（颜色、尺寸、字体等）
+│       ├── template_manager.py    # 模板管理器（保存/加载配置）
+│       ├── md_editor.py           # Markdown CSS 正则编辑
+│       └── collapsible_section.py # 可折叠面板组件
 ├── output/                        # 生成的 Markdown / PNG / PPTX
-│   └── 调整指南.md                 # 手动调整样式的完整指南
 └── README.md
 ```
 
@@ -126,17 +134,15 @@ Excel → data_loader → layout → HTML 生成 → Marp Markdown → PPTX/PNG
 
 ## 手动调整样式
 
-生成的 Markdown 文件可以直接编辑。详细的调整方法请查看：
+生成的 Markdown 文件可以直接编辑，修改 CSS 属性即可调整样式。涵盖：字号、内边距、间距、颜色、圆角、模块大小、字体、换行等。
 
-👉 **[调整指南](output/调整指南.md)**
-
-涵盖：字号、内边距、间距、颜色、圆角、模块大小、字体、换行等所有可调整项。
-
-## 技术细节
+## 技术文档
 
 如需深入了解布局算法、CSS 架构和版本约束，请查看：
 
-👉 **[技术文档](技术文档.md)**
+- 👉 **[技术文档](技术文档.md)**
+- 👉 **[布局算法详解](技术文档-布局算法详解.md)**
+- 👉 **[Marp 规则参考](marp-rules.md)**
 
 ## 项目进度
 
@@ -144,9 +150,10 @@ GUI应用开发进度跟踪，请查看：
 
 👉 **[项目进度](项目进度.md)**
 
-当前进度：4/6阶段完成（67%）
+当前进度：5/6阶段完成（83%），v-0.1 已发布
 - ✅ 第一阶段：环境搭建与基础框架
 - ✅ 第二阶段：文件选择与基础预览
 - ✅ 第三阶段：参数调整面板完善
 - ✅ 第四阶段：批量处理功能
-- 📋 第五阶段：高级功能（待开始）
+- ✅ 第五阶段：高级功能（历史记录、模板、快捷键、HTML导出）
+- 📋 第六阶段：打包成 exe（待开始）

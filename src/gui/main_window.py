@@ -28,7 +28,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 from src import config
 from src.data_loader import load_data_from_excel
-from src.gui.md_editor import extract_params_from_md, apply_params_to_md
+from src.gui.md_editor import extract_params_from_md, apply_params_to_md, _sub_in_css_blocks
 
 
 class GenerateWorker(QThread):
@@ -549,7 +549,10 @@ class MainWindow(QMainWindow):
         self._worker.start()
 
     def _apply_pending_params(self):
-        """将 pending 参数应用到已有 markdown 文件（仅修改 CSS，不重新生成）"""
+        """将 pending 参数应用到已有 markdown 文件（仅修改 CSS，不重新生成）
+
+        所有 CSS 替换通过 _sub_in_css_blocks 执行，确保正则不跨越 } 边界。
+        """
         import re
         params = self._pending_params
         applied_count = 0
@@ -566,7 +569,6 @@ class MainWindow(QMainWindow):
                 content = f.read()
 
             # --- 颜色直接替换 ---
-            # 注意: 使用 [^}]* 替代 [^}]*，只匹配单个属性值，不跨越属性边界
             color_map = {
                 'GROUP_BG': (r'(\.group\s*\{[^}]*background:\s*)', 'GROUP_BG'),
                 'GROUP_HEADER_COLOR': (r'(\.group-header\s*\{[^}]*background:\s*)', 'GROUP_HEADER_COLOR'),
@@ -581,11 +583,11 @@ class MainWindow(QMainWindow):
                     old_val = orig[orig_key]
                     new_val = params[param_key]
                     if old_val != new_val:
-                        content = re.sub(pattern + re.escape(old_val),
-                                         lambda m, v=new_val: m.group(1) + v, content)
+                        content = _sub_in_css_blocks(content,
+                            pattern + re.escape(old_val),
+                            lambda m, v=new_val: m.group(1) + v)
 
             # --- 数值按比例缩放 ---
-            # 注意: 使用 [^}]* 替代 [^}]*，只匹配单个属性值，不跨越属性边界
             css_configs = {
                 'MODULE_FONT_SIZE':      ('MODULE_FONT_SIZE_PX',      r'(\.module\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px'),
                 'GROUP_HEADER_FONT_SIZE':('GROUP_HEADER_FONT_SIZE_PX',r'(\.group-header\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px'),
@@ -606,17 +608,15 @@ class MainWindow(QMainWindow):
                     config_new = params[param_key]
                     if config_old > 0:
                         target_css = init_css[css_key] * (config_new / config_old)
-                        m = re.search(pattern, content)
-                        if m:
-                            if param_key == 'DOMAIN_BORDER_WIDTH':
-                                replacement = f'{m.group(1)}{target_css:.0f}px{m.group(3)}'
-                            elif param_key == 'DOMAIN_PADDING':
-                                replacement = f'{m.group(1)}{target_css:.0f}px {float(m.group(3)) * target_css / float(m.group(2)):.0f}px'
-                            elif 'font-size' in pattern:
-                                replacement = f'{m.group(1)}{target_css:.1f}px'
-                            else:
-                                replacement = f'{m.group(1)}{target_css:.0f}px'
-                            content = content[:m.start(2)] + replacement + content[m.end(2):]
+                        if param_key == 'DOMAIN_BORDER_WIDTH':
+                            content = _sub_in_css_blocks(content, pattern,
+                                lambda m, v=target_css: m.group(1) + f'{v:.0f}px' + m.group(3))
+                        elif 'font-size' in pattern:
+                            content = _sub_in_css_blocks(content, pattern,
+                                lambda m, v=target_css: m.group(1) + f'{v:.1f}px')
+                        else:
+                            content = _sub_in_css_blocks(content, pattern,
+                                lambda m, v=target_css: m.group(1) + f'{v:.0f}px')
 
             # --- 域内边距（特殊处理：两个值） ---
             if 'DOMAIN_PADDING' in params and 'DOMAIN_PADDING_Y_PX' in init_css:
@@ -625,9 +625,9 @@ class MainWindow(QMainWindow):
                 if config_old > 0:
                     target_y = init_css['DOMAIN_PADDING_Y_PX'] * (config_new / config_old)
                     target_x = init_css.get('DOMAIN_PADDING_X_PX', 16) * (config_new / config_old)
-                    m = re.search(r'(\.domain-frame-wrapper\s*\{[^}]*padding:\s*)(\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px', content)
-                    if m:
-                        content = content[:m.start(2)] + f'{target_y:.0f}px {target_x:.0f}px' + content[m.end(3):]
+                    content = _sub_in_css_blocks(content,
+                        r'(\.domain-frame-wrapper\s*\{[^}]*padding:\s*)(\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px',
+                        lambda m, ty=target_y, tx=target_x: m.group(1) + f'{ty:.0f}px {tx:.0f}px')
 
             with open(md_path, 'w', encoding='utf-8') as f:
                 f.write(content)

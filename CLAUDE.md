@@ -23,12 +23,17 @@ python generate_treemap_md.py
 python generate_treemap_md.py 03
 python generate_treemap_md.py 纪检监察
 
+# CLI: Multi-file proportional width mode
+python generate_treemap_md.py --proportional-width
+
 # Convert output
 marp output/*.md --pptx
 marp output/*.md --images png --allow-local-files
 
 # GUI: Launch graphical interface
 python src/app.py
+# Or use the Windows batch launcher (auto-installs deps)
+启动应用.bat
 
 # Smoke tests (no formal test suite)
 python src/test_simple.py
@@ -57,9 +62,9 @@ MainWindow
 ├── LEFT PANEL
 │   ├── FileSelector (QListWidget + drag-drop + recent files via QSettings)
 │   ├── FileInfoWidget (Excel metadata + data tree preview)
-│   ├── ParamsPanel (11 controls: 3 ColorButtons, 6 spin boxes, 1 checkbox, 1 ratio)
+│   ├── ParamsPanel (7 ColorButtons, 15 spin boxes, 1 checkbox, template management)
 │   ├── Generate / Cancel buttons
-│   ├── Export format combo (PNG/PPTX/HTML/both/all)
+│   ├── Export format combo (PNG/PPTX/HTML/PNG+PPTX/PNG+HTML/All)
 │   └── Progress bar
 ├── RIGHT PANEL
 │   ├── PreviewWidget (image display + left/right navigation arrows)
@@ -153,3 +158,10 @@ Marp wraps all content in a `<section>` element with its own flex layout (`displ
 - **`!important` partially stripped**: Marp strips `!important` from some properties but not others. Don't rely on it consistently.
 - **Output filenames**: Spaces break Marp CLI. Generator replaces spaces with underscores (`safe_stem`).
 - **Marp frontmatter `style` block**: Uses double braces `{{` / `}}` for Python f-string escaping.
+
+## Technical Documentation (Chinese)
+
+- `技术文档.md` — Full technical documentation
+- `技术文档-布局算法详解.md` — Layout algorithm deep-dive
+- `Markdown复用机制说明.md` — Markdown reuse mechanism explanation
+- `marp-rules.md` — Marp Markdown quick reference card
