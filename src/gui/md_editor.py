@@ -153,6 +153,15 @@ def extract_params_from_md(md_path: str) -> dict:
     if m:
         params['MODULE_FONT_FAMILY'] = m.group(1).strip()
 
+    # 提取画布高度（从 frontmatter 中，匹配 "height: 720px" 或 "height: 720"）
+    # 只匹配 frontmatter 部分（--- 之间），且在 style: 之前
+    frontmatter_match = re.search(r'^---\s*\n(.*?)\nstyle:', content, re.DOTALL)
+    if frontmatter_match:
+        frontmatter = frontmatter_match.group(1)
+        m = re.search(r'height:\s*(\d+)(?:px)?', frontmatter)
+        if m:
+            params['SLIDE_HEIGHT_PX'] = float(m.group(1))
+
     return params
 
 
@@ -329,6 +338,43 @@ def apply_params_to_md(md_path: str, new_params: dict, original_params: dict,
             content = _sub_in_css_blocks(content,
                 r'(\.module\s*\{[^}]*font-family:\s*)' + re.escape(old_val),
                 r'\g<1>' + new_val)
+
+    # --- 画布高度（Marp frontmatter 中的 height + CSS section height） ---
+    if 'SLIDE_HEIGHT_PX' in new_params:
+        new_height = new_params['SLIDE_HEIGHT_PX']
+        old_height = original_params.get('SLIDE_HEIGHT_PX', 'N/A')
+        print(f"[DEBUG] SLIDE_HEIGHT_PX: old={old_height}, new={new_height}")
+        # 只替换 frontmatter 中的 height（在 style: 之前）
+        # 格式: height: 720px 或 height: 720
+        frontmatter_end = content.find('\nstyle:')
+        if frontmatter_end != -1:
+            frontmatter = content[:frontmatter_end]
+            rest = content[frontmatter_end:]
+            print(f"[DEBUG] Frontmatter before: {frontmatter[:200]}...")
+            # 替换 frontmatter 中的 height
+            frontmatter = re.sub(
+                r'(height:\s*)(\d+)(px)?',
+                lambda m, h=new_height: m.group(1) + str(int(h)) + 'px',
+                frontmatter
+            )
+            # 如果没有 height 字段，在 backgroundColor 后面添加
+            if 'height:' not in frontmatter:
+                print("[DEBUG] No height field found, adding one")
+                frontmatter = frontmatter.replace(
+                    'backgroundColor: "#FAFBFC"',
+                    f'backgroundColor: "#FAFBFC"\nheight: {int(new_height)}px'
+                )
+            print(f"[DEBUG] Frontmatter after: {frontmatter[:200]}...")
+            content = frontmatter + rest
+        else:
+            print("[DEBUG] Could not find \\nstyle: in content")
+
+        # 同时更新 CSS 中的 section height
+        content = re.sub(
+            r'(section\s*\{[^}]*height:\s*)(\d+)(px\s*!important)',
+            lambda m, h=new_height: m.group(1) + str(int(h)) + m.group(3),
+            content
+        )
 
     # 写回文件
     with open(md_path, 'w', encoding='utf-8') as f:

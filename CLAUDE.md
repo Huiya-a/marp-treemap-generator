@@ -42,12 +42,12 @@ python src/test_gui.py
 
 ## Architecture
 
-**Data flow:** Excel → `data_loader` → `layout` → HTML generation → Marp Markdown → PPTX/PNG
+**Data flow:** Excel → `data_loader` → `layout` → HTML generation → Marp Markdown → PNG crop → PPTX/PNG
 
 ### Core modules
 
 - **`generate_treemap_md.py`** — CLI entry point + HTML rendering. `_compute_structure` runs a two-pass layout: pass 1 measures content bounding box, adjusts canvas to 16:9, pass 2 reruns with adjusted canvas. `generate_marp_md` produces the full Marp Markdown file with embedded CSS+HTML. `_wrap_text` handles CJK-aware line breaking.
-- **`src/config.py`** — All layout constants in "natural units" (canvas 13.33×7.5). Uniform `scale` factor maps to 1280×720 Marp pixel canvas.
+- **`src/config.py`** — All layout constants in "natural units" (canvas 13.33×7.5). Uniform `scale` factor maps to 1280×720 Marp pixel canvas. Also contains `SLIDE_HEIGHT_PX` for customizable slide height.
 - **`src/data_loader.py`** — Reads Excel. Sheet containing "应用模块清单" (or 2nd sheet). Row 3+: B=domain, D=group, G=module. Returns `(domain_name, {group: [modules]})`.
 - **`src/layout.py`** — Core layout engine (two code paths):
   - **<6 groups:** `compute_modules_per_row` → `compute_optimal_column_count` (tries 2–4 cols, scores on module imbalance + visual row imbalance + aspect ratio) → `_assign_groups_to_columns` (greedy, largest first, score = `module_dev + vr_dev²`) → `_adjust_mpr_for_balance`
@@ -76,6 +76,7 @@ Key GUI modules in `src/gui/`:
 - `md_editor.py` — regex-based CSS editor (`_sub_in_css_blocks`, `extract_params_from_md`, `apply_params_to_md`, `apply_module_color`)
 - `module_color_dialog.py` — per-module color picker dialog (uses MD5 hash of module name for CSS class `mc-{hash}`)
 - `template_manager.py` — save/load parameter presets to `~/.架构图生成器/templates/`
+- `main_window.py` — contains `GenerateWorker` thread and `_crop_transparent_area` for PNG post-processing
 
 **Signal flow:** `FileSelector.files_changed` → update `FileInfoWidget`; `ParamsPanel.params_changed` → `md_editor.apply_params_to_md()` (regex-based CSS editing, no re-layout); Generate button → `GenerateWorker(QThread)` → signals back to UI.
 
@@ -84,6 +85,14 @@ Key GUI modules in `src/gui/`:
 **Session-level reuse:** Generated Markdown files are cached per session (`_session_processed` set in `GenerateWorker`). If the same Excel file is re-processed within the same GUI session, the existing `.md` is reused and only parameter edits (CSS regex) are applied — no re-layout occurs. A fresh `python src/app.py` clears this cache.
 
 **Template storage:** JSON files in `~/.架构图生成器/templates/`.
+
+**PNG post-processing:** After Marp CLI generates PNG, `_crop_transparent_area` in `MainWindow` automatically crops transparent pixels from the bottom of the image. This is necessary because Marp CLI always generates 1280×720 images regardless of the `height` setting in frontmatter.
+
+**Canvas height adjustment:** The `SLIDE_HEIGHT_PX` parameter (400-720px) allows adjusting the Marp slide height. This is implemented by:
+1. Adding `height: {slide_height}px` to Marp frontmatter
+2. Adding `height: {slide_height}px !important` to CSS `section` selector
+3. Automatically cropping transparent areas from PNG output
+4. Limiting max height to 720px (Marp CLI default) to prevent content truncation
 
 ### Layout hierarchy (CSS nesting)
 
@@ -109,6 +118,7 @@ Modules use flexbox (`<div>`, not `<table>`). Each `.mod-row` gets inline CSS va
 |-----------|---------|-------------|
 | `CANVAS_W` / `CANVAS_H` | 13.33 / 7.5 | Natural unit canvas size |
 | `CANVAS_W_PX` / `CANVAS_H_PX` | 1280 / 720 | Marp pixel dimensions |
+| `SLIDE_HEIGHT_PX` | 720 | Customizable slide height (400-720px) |
 | `MODULE_W` / `MODULE_H` | 1.2 / 0.4 | Module natural dimensions (3:1 ratio) |
 | `COL_GAP` / `ROW_GAP` | 0.2 / 0.12 | Column/row gaps (natural units) |
 | `ADJUST_MPR` | True | Enable mpr balance adjustment |
@@ -131,6 +141,7 @@ Modules use flexbox (`<div>`, not `<table>`). Each `.mod-row` gets inline CSS va
 - Font sizes, line heights, border radii, border widths
 - MPR target ratio in `compute_modules_per_row` (current 1.5, safe range 1.2–1.8)
 - Scoring weights in `_assign_groups_to_columns` (current `module_dev + vr_dev²`, minor tuning OK)
+- Canvas height range in `params_panel.py` (currently 400-720px)
 
 ### Forbidden changes
 
@@ -151,6 +162,7 @@ marp output/*.md --images png --allow-local-files  # generate images
 # 2. Column heights roughly balanced
 # 3. Text readable, line breaks reasonable
 # 4. No overflow or clipping
+# 5. PNG transparent areas are properly cropped
 ```
 
 ## Marp CSS Pitfalls
@@ -165,9 +177,10 @@ Marp wraps all content in a `<section>` element with its own flex layout (`displ
 - **`!important` partially stripped**: Marp strips `!important` from some properties but not others. Don't rely on it consistently.
 - **Output filenames**: Spaces break Marp CLI. Generator replaces spaces with underscores (`safe_stem`).
 - **Marp frontmatter `style` block**: Uses double braces `{{` / `}}` for Python f-string escaping.
+- **Slide height**: Marp CLI always generates 1280×720 PNG regardless of `height` setting. Use `section { height: XXXpx !important; }` and crop transparent areas.
 
 ## Technical Documentation (Chinese)
 
-- `技术文档.md` — Full technical documentation
-- `技术文档-布局算法详解.md` — Layout algorithm deep-dive
-- `marp-rules.md` — Marp Markdown quick reference card
+- `doc/技术文档.md` — Full technical documentation
+- `doc/技术文档-布局算法详解.md` — Layout algorithm deep-dive
+- `doc/marp-rules.md` — Marp Markdown quick reference card

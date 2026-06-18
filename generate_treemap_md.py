@@ -37,7 +37,7 @@ from src.config import (
     DOMAIN_TITLE_FONT_SIZE, DOMAIN_TITLE_MARGIN_BOTTOM,
     GROUP_BORDER_RADIUS, GROUP_HEADER_MARGIN_BOTTOM, COLUMN_GAP,
     MODULE_BORDER_RADIUS, MODULE_LINE_HEIGHT,
-    FONT_FAMILY,
+    FONT_FAMILY, SLIDE_HEIGHT_PX,
 )
 
 
@@ -488,7 +488,7 @@ def _render_group_html(group_data, col_inner_w=None):
 # Marp Markdown 生成
 # ============================================================
 
-def generate_marp_md(domain_name, data, output_path, proportional_width=None):
+def generate_marp_md(domain_name, data, output_path, proportional_width=None, slide_height=None):
     """
     生成完整的 Marp Markdown 文件。
 
@@ -501,6 +501,7 @@ def generate_marp_md(domain_name, data, output_path, proportional_width=None):
         data: {group_name: [module_name, ...]}
         output_path: 输出 .md 文件路径
         proportional_width: 按比例分配的宽度（px），为 None 时使用默认宽度
+        slide_height: Marp 幻灯片高度（px），为 None 时使用默认值 720
     """
     # 计算布局结构
     structure = _compute_structure(data)
@@ -570,11 +571,15 @@ def generate_marp_md(domain_name, data, output_path, proportional_width=None):
 
     # 组装完整的 Marp Markdown
     # 注意: CSS 中使用双大括号 {{ }} 是因为 Python f-string 转义
+    # 确定幻灯片高度
+    if slide_height is None:
+        slide_height = SLIDE_HEIGHT_PX
     md = f'''---
 marp: true
 theme: default
 paginate: false
 backgroundColor: "#FAFBFC"
+height: {int(slide_height)}px
 style: |
   section {{
     display: block !important;
@@ -583,6 +588,7 @@ style: |
     overflow: hidden !important;
     position: relative !important;
     box-sizing: border-box;
+    height: {int(slide_height)}px !important;
   }}
   .treemap {{
     position: absolute;

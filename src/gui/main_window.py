@@ -91,7 +91,8 @@ class GenerateWorker(QThread):
                     if file_path not in self._session_processed:
                         self.log.emit("  首次生成 Markdown...")
                         from generate_treemap_md import generate_marp_md
-                        generate_marp_md(domain_name, data, output_path, proportional_width=None)
+                        generate_marp_md(domain_name, data, output_path, proportional_width=None,
+                                        slide_height=self.params.get('SLIDE_HEIGHT_PX'))
                         self._session_processed.add(file_path)
                     else:
                         self.log.emit(f"  复用已有 Markdown: {output_path}")
@@ -121,6 +122,7 @@ class GenerateWorker(QThread):
                             'GROUP_BORDER_RADIUS': config.GROUP_BORDER_RADIUS,
                             'MODULE_BORDER_RADIUS': config.MODULE_BORDER_RADIUS,
                             'DOMAIN_BORDER_WIDTH': config.DOMAIN_BORDER_WIDTH,
+                            'SLIDE_HEIGHT_PX': config.SLIDE_HEIGHT_PX,
                             'ADJUST_MPR': config.ADJUST_MPR,
                             'TARGET_RATIO': config.TARGET_RATIO,
                         }
@@ -201,12 +203,15 @@ class GenerateWorker(QThread):
 
             if result.returncode == 0:
                 if os.path.exists(png_path):
+                    # 裁剪透明区域（如果设置了自定义画布高度）
+                    self._crop_transparent_area(png_path)
                     return png_path
                 md_dir = os.path.dirname(md_path)
                 base_name = os.path.splitext(os.path.basename(md_path))[0]
                 for f in os.listdir(md_dir):
                     if f.startswith(base_name) and f.endswith('.png'):
-                        return os.path.join(md_dir, f)
+                        cropped = self._crop_transparent_area(os.path.join(md_dir, f))
+                        return cropped if cropped else os.path.join(md_dir, f)
                 dir_path = os.path.splitext(md_path)[0]
                 if os.path.isdir(dir_path):
                     for f in os.listdir(dir_path):
@@ -225,6 +230,46 @@ class GenerateWorker(QThread):
         except Exception as e:
             self.log.emit(f"  调用MarP CLI失败: {str(e)}")
             return ""
+
+    def _crop_transparent_area(self, png_path: str) -> str:
+        """裁剪PNG底部的透明区域"""
+        try:
+            from PIL import Image
+            import numpy as np
+
+            img = Image.open(png_path)
+            if img.mode != 'RGBA':
+                return png_path
+
+            # 转换为numpy数组
+            img_array = np.array(img)
+
+            # 找到最后一行非透明像素
+            # alpha通道（第4个通道）> 0 表示非透明
+            alpha = img_array[:, :, 3]
+            non_transparent_rows = np.where(alpha.any(axis=1))[0]
+
+            if len(non_transparent_rows) == 0:
+                return png_path
+
+            last_row = non_transparent_rows[-1]
+
+            # 如果最后一行就是图片底部，不需要裁剪
+            if last_row >= img.height - 1:
+                return png_path
+
+            # 裁剪图片（精确裁剪到最后一行非透明像素）
+            crop_height = last_row + 1
+            cropped_img = img.crop((0, 0, img.width, crop_height))
+
+            # 保存裁剪后的图片
+            cropped_img.save(png_path)
+            self.log.emit(f"  裁剪透明区域: {img.height}px -> {crop_height}px")
+
+            return png_path
+        except Exception as e:
+            self.log.emit(f"  裁剪透明区域失败: {str(e)}")
+            return png_path
 
     def _generate_pptx(self, md_path: str) -> str:
         """调用MarP CLI生成PPTX文件"""
@@ -906,6 +951,10 @@ class MainWindow(QMainWindow):
         params = self._pending_params
         applied_count = 0
 
+        print(f"[DEBUG] _on_apply_params called with params keys: {list(params.keys()) if params else 'None'}")
+        if params and 'SLIDE_HEIGHT_PX' in params:
+            print(f"[DEBUG] SLIDE_HEIGHT_PX in params: {params['SLIDE_HEIGHT_PX']}")
+
         for excel_path, md_path in targets.items():
             if not os.path.exists(md_path):
                 continue
@@ -913,8 +962,12 @@ class MainWindow(QMainWindow):
             orig = self._original_params.get(md_path, {})
             init_css = self._initial_css.get(md_path, {})
             if not orig or not init_css:
+                print(f"[DEBUG] Missing orig or init_css for {md_path}")
                 continue
 
+            print(f"[DEBUG] Calling apply_params_to_md for {md_path}")
+            print(f"[DEBUG] orig keys: {list(orig.keys())}")
+            print(f"[DEBUG] SLIDE_HEIGHT_PX in orig: {orig.get('SLIDE_HEIGHT_PX', 'NOT FOUND')}")
             ok, updated_css = apply_params_to_md(md_path, params, orig, css_baseline=init_css)
             if ok:
                 self._css_state[md_path] = updated_css or extract_params_from_md(md_path)

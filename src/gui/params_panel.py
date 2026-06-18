@@ -125,7 +125,9 @@ class ParamsPanel(QWidget):
 
         # 组背景色
         row = QHBoxLayout()
-        row.addWidget(QLabel("组背景色:"))
+        lbl = QLabel("组背景色:")
+        lbl.setFixedWidth(85)
+        row.addWidget(lbl)
         self.group_bg_color = ColorButton(config.GROUP_BG)
         self.group_bg_color.setToolTip("应用组的背景颜色")
         self.group_bg_color.color_changed.connect(self._on_params_changed)
@@ -135,7 +137,9 @@ class ParamsPanel(QWidget):
 
         # 组标题色
         row = QHBoxLayout()
-        row.addWidget(QLabel("组标题色:"))
+        lbl = QLabel("组标题色:")
+        lbl.setFixedWidth(85)
+        row.addWidget(lbl)
         self.group_header_color = ColorButton(config.GROUP_HEADER_COLOR)
         self.group_header_color.setToolTip("应用组标题栏的颜色")
         self.group_header_color.color_changed.connect(self._on_params_changed)
@@ -145,7 +149,9 @@ class ParamsPanel(QWidget):
 
         # 模块背景色
         row = QHBoxLayout()
-        row.addWidget(QLabel("模块背景色:"))
+        lbl = QLabel("模块背景色:")
+        lbl.setFixedWidth(85)
+        row.addWidget(lbl)
         self.module_bg_color = ColorButton(config.MODULE_BG_COLOR)
         self.module_bg_color.setToolTip("应用模块的背景颜色")
         self.module_bg_color.color_changed.connect(self._on_params_changed)
@@ -155,7 +161,9 @@ class ParamsPanel(QWidget):
 
         # 域背景色
         row = QHBoxLayout()
-        row.addWidget(QLabel("域背景色:"))
+        lbl = QLabel("域背景色:")
+        lbl.setFixedWidth(85)
+        row.addWidget(lbl)
         self.domain_bg_color = ColorButton(config.DOMAIN_BG)
         self.domain_bg_color.setToolTip("域外框的背景颜色")
         self.domain_bg_color.color_changed.connect(self._on_params_changed)
@@ -165,7 +173,9 @@ class ParamsPanel(QWidget):
 
         # 域边框色
         row = QHBoxLayout()
-        row.addWidget(QLabel("域边框色:"))
+        lbl = QLabel("域边框色:")
+        lbl.setFixedWidth(85)
+        row.addWidget(lbl)
         self.domain_border_color = ColorButton(config.DOMAIN_BORDER_COLOR)
         self.domain_border_color.setToolTip("域外框的边框颜色")
         self.domain_border_color.color_changed.connect(self._on_params_changed)
@@ -175,7 +185,9 @@ class ParamsPanel(QWidget):
 
         # 域标题色
         row = QHBoxLayout()
-        row.addWidget(QLabel("域标题色:"))
+        lbl = QLabel("域标题色:")
+        lbl.setFixedWidth(85)
+        row.addWidget(lbl)
         self.domain_title_color = ColorButton(config.DOMAIN_TITLE_COLOR)
         self.domain_title_color.setToolTip("域标题的文字颜色")
         self.domain_title_color.color_changed.connect(self._on_params_changed)
@@ -185,7 +197,9 @@ class ParamsPanel(QWidget):
 
         # 模块边框色
         row = QHBoxLayout()
-        row.addWidget(QLabel("模块边框色:"))
+        lbl = QLabel("模块边框色:")
+        lbl.setFixedWidth(85)
+        row.addWidget(lbl)
         self.module_border_color = ColorButton(config.MODULE_BORDER_COLOR)
         self.module_border_color.setToolTip("模块格子的边框颜色")
         self.module_border_color.color_changed.connect(self._on_params_changed)
@@ -420,7 +434,7 @@ class ParamsPanel(QWidget):
         _ff_container.setVisible(False)
         font_layout.addWidget(_ff_container)
 
-        # 模块行高
+        # 模块行高 — 暂时隐藏
         row = QHBoxLayout()
         row.addWidget(QLabel("模块行高:"))
         self.module_line_height_spin = NoWheelDoubleSpinBox()
@@ -431,7 +445,10 @@ class ParamsPanel(QWidget):
         self.module_line_height_spin.setToolTip("模块文字的行高倍数 (1.0-2.0)")
         self.module_line_height_spin.valueChanged.connect(self._on_params_changed)
         row.addWidget(self.module_line_height_spin)
-        font_layout.addLayout(row)
+        _lh_container = QWidget()
+        _lh_container.setLayout(row)
+        _lh_container.setVisible(False)
+        font_layout.addWidget(_lh_container)
 
         layout.addWidget(font_group)
 
@@ -440,14 +457,19 @@ class ParamsPanel(QWidget):
         layout_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         layout_layout = QVBoxLayout(layout_group)
 
-        # 启用MPR平衡
+        # 启用MPR平衡 — 暂时隐藏
         self.adjust_mpr_check = QCheckBox("启用MPR平衡调整")
         self.adjust_mpr_check.setChecked(config.ADJUST_MPR)
         self.adjust_mpr_check.setToolTip("自动平衡各列的高度，使布局更均匀")
         self.adjust_mpr_check.stateChanged.connect(self._on_params_changed)
-        layout_layout.addWidget(self.adjust_mpr_check)
+        _mpr_container = QWidget()
+        _mpr_layout = QHBoxLayout(_mpr_container)
+        _mpr_layout.setContentsMargins(0, 0, 0, 0)
+        _mpr_layout.addWidget(self.adjust_mpr_check)
+        _mpr_container.setVisible(False)
+        layout_layout.addWidget(_mpr_container)
 
-        # 目标宽高比
+        # 目标宽高比 — 暂时隐藏
         row = QHBoxLayout()
         row.addWidget(QLabel("目标宽高比:"))
         self.target_ratio_spin = NoWheelDoubleSpinBox()
@@ -458,6 +480,22 @@ class ParamsPanel(QWidget):
         self.target_ratio_spin.setToolTip("整体布局的目标宽高比 (1.0-2.5)")
         self.target_ratio_spin.valueChanged.connect(self._on_params_changed)
         row.addWidget(self.target_ratio_spin)
+        _ratio_container = QWidget()
+        _ratio_container.setLayout(row)
+        _ratio_container.setVisible(False)
+        layout_layout.addWidget(_ratio_container)
+
+        # 画布高度（Marp frontmatter）
+        row = QHBoxLayout()
+        row.addWidget(QLabel("画布高度:"))
+        self.slide_height_spin = NoWheelSpinBox()
+        self.slide_height_spin.setRange(400, 720)
+        self.slide_height_spin.setSingleStep(10)
+        self.slide_height_spin.setValue(config.SLIDE_HEIGHT_PX)
+        self.slide_height_spin.setToolTip("Marp 幻灯片高度 (400-720px)，调整后不影响模块缩放。\n注意：最大720px，超过会导致内容被截断")
+        self.slide_height_spin.valueChanged.connect(self._on_params_changed)
+        row.addWidget(self.slide_height_spin)
+        row.addWidget(QLabel("px"))
         layout_layout.addLayout(row)
 
         layout.addWidget(layout_group)
@@ -589,6 +627,7 @@ class ParamsPanel(QWidget):
             # 布局
             'ADJUST_MPR': self.adjust_mpr_check.isChecked(),
             'TARGET_RATIO': self.target_ratio_spin.value(),
+            'SLIDE_HEIGHT_PX': self.slide_height_spin.value(),
         }
 
     def set_params(self, params: dict):
@@ -655,6 +694,8 @@ class ParamsPanel(QWidget):
             self.adjust_mpr_check.setChecked(params['ADJUST_MPR'])
         if 'TARGET_RATIO' in params:
             self.target_ratio_spin.setValue(params['TARGET_RATIO'])
+        if 'SLIDE_HEIGHT_PX' in params:
+            self.slide_height_spin.setValue(params['SLIDE_HEIGHT_PX'])
 
     def _on_reset(self):
         """重置为默认值"""
@@ -684,6 +725,7 @@ class ParamsPanel(QWidget):
             'DOMAIN_BORDER_WIDTH': config.DOMAIN_BORDER_WIDTH,
             'ADJUST_MPR': config.ADJUST_MPR,
             'TARGET_RATIO': config.TARGET_RATIO,
+            'SLIDE_HEIGHT_PX': config.SLIDE_HEIGHT_PX,
         })
 
     def _on_load_template(self):
