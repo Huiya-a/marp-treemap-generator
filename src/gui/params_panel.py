@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QSpinBox, QDoubleSpinBox, QCheckBox,
     QColorDialog, QPushButton, QMessageBox, QDialog,
-    QComboBox, QSizePolicy
+    QComboBox, QSizePolicy, QLineEdit
 )
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QColor, QWheelEvent
@@ -97,10 +97,15 @@ class ParamsPanel(QWidget):
 
     # 信号：参数改变时发出
     params_changed = Signal(dict)
+    # 信号：单模块调色 (module_name, color)
+    module_color_applied = Signal(str, str)
+    # 信号：批量模块调色 ([module_names], color)
+    batch_module_color_applied = Signal(list, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._template_manager = TemplateManager()
+        self._current_modules = {}  # {group_name: [module_name, ...]}
         self._setup_ui()
 
     def _setup_ui(self):
@@ -195,7 +200,7 @@ class ParamsPanel(QWidget):
         size_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         size_layout = QVBoxLayout(size_group)
 
-        # 模块宽度
+        # 模块宽度 — 暂时隐藏（布局算法尚未适配运行时调整）
         row = QHBoxLayout()
         row.addWidget(QLabel("模块宽度:"))
         self.module_w_spin = NoWheelDoubleSpinBox()
@@ -206,9 +211,12 @@ class ParamsPanel(QWidget):
         self.module_w_spin.setToolTip("模块矩形的宽度 (0.5-3.0)")
         self.module_w_spin.valueChanged.connect(self._on_params_changed)
         row.addWidget(self.module_w_spin)
-        size_layout.addLayout(row)
+        _mw_container = QWidget()
+        _mw_container.setLayout(row)
+        _mw_container.setVisible(False)
+        size_layout.addWidget(_mw_container)
 
-        # 模块高度
+        # 模块高度 — 暂时隐藏（布局算法尚未适配运行时调整）
         row = QHBoxLayout()
         row.addWidget(QLabel("模块高度:"))
         self.module_h_spin = NoWheelDoubleSpinBox()
@@ -219,7 +227,10 @@ class ParamsPanel(QWidget):
         self.module_h_spin.setToolTip("模块矩形的高度 (0.2-1.0)")
         self.module_h_spin.valueChanged.connect(self._on_params_changed)
         row.addWidget(self.module_h_spin)
-        size_layout.addLayout(row)
+        _mh_container = QWidget()
+        _mh_container.setLayout(row)
+        _mh_container.setVisible(False)
+        size_layout.addWidget(_mh_container)
 
         # 列间距
         row = QHBoxLayout()
@@ -389,7 +400,7 @@ class ParamsPanel(QWidget):
         row.addWidget(self.domain_title_font_spin)
         font_layout.addLayout(row)
 
-        # 模块字体族
+        # 模块字体族 — 暂时隐藏
         row = QHBoxLayout()
         row.addWidget(QLabel("模块字体:"))
         self.font_family_combo = NoWheelComboBox()
@@ -404,7 +415,10 @@ class ParamsPanel(QWidget):
         self.font_family_combo.setToolTip("模块文字的字体")
         self.font_family_combo.currentTextChanged.connect(self._on_params_changed)
         row.addWidget(self.font_family_combo)
-        font_layout.addLayout(row)
+        _ff_container = QWidget()
+        _ff_container.setLayout(row)
+        _ff_container.setVisible(False)
+        font_layout.addWidget(_ff_container)
 
         # 模块行高
         row = QHBoxLayout()
@@ -448,6 +462,34 @@ class ParamsPanel(QWidget):
 
         layout.addWidget(layout_group)
 
+        # ========== 单模块调色 ==========
+        module_color_group = QGroupBox("单模块调色")
+        mc_layout = QHBoxLayout(module_color_group)
+        mc_layout.setContentsMargins(4, 4, 4, 4)
+
+        mc_layout.addWidget(QLabel("模块名:"))
+        self.module_name_input = QLineEdit()
+        self.module_name_input.setPlaceholderText("输入模块名称")
+        self.module_name_input.setFixedWidth(120)
+        mc_layout.addWidget(self.module_name_input)
+
+        self.module_color_btn = ColorButton('#C4D8FC')
+        self.module_color_btn.setToolTip("选择要应用的颜色")
+        mc_layout.addWidget(self.module_color_btn)
+
+        self.apply_module_color_btn = QPushButton("应用")
+        self.apply_module_color_btn.setToolTip("为指定模块设置颜色")
+        self.apply_module_color_btn.clicked.connect(self._on_apply_module_color)
+        mc_layout.addWidget(self.apply_module_color_btn)
+
+        layout.addWidget(module_color_group)
+
+        # ========== 批量模块调色 ==========
+        self.batch_color_btn = QPushButton("批量调色")
+        self.batch_color_btn.setToolTip("打开批量调色窗口，多选模块一起调色")
+        self.batch_color_btn.clicked.connect(self._on_batch_color)
+        layout.addWidget(self.batch_color_btn)
+
         # ========== 分隔线 ==========
         from PySide6.QtWidgets import QFrame
         separator = QFrame()
@@ -479,6 +521,34 @@ class ParamsPanel(QWidget):
     def _on_params_changed(self):
         """参数改变时触发"""
         self.params_changed.emit(self.get_params())
+
+    def _on_apply_module_color(self):
+        """应用单模块颜色"""
+        name = self.module_name_input.text().strip()
+        if not name:
+            QMessageBox.warning(self, "提示", "请输入模块名称")
+            return
+        color = self.module_color_btn.get_color()
+        self.module_color_applied.emit(name, color)
+
+    def set_current_modules(self, modules: dict):
+        """设置当前文件的模块数据，供批量调色使用
+
+        Args:
+            modules: {group_name: [module_name, ...]}
+        """
+        self._current_modules = modules
+
+    def _on_batch_color(self):
+        """打开批量调色对话框"""
+        if not self._current_modules:
+            QMessageBox.warning(self, "提示", "请先选择一个已生成的文件")
+            return
+
+        from .module_color_dialog import ModuleColorDialog
+        dialog = ModuleColorDialog(self._current_modules, parent=self)
+        dialog.colors_applied.connect(self.batch_module_color_applied.emit)
+        dialog.exec()
 
     def get_params(self) -> dict:
         """获取当前所有参数"""

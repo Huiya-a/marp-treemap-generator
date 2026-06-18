@@ -23,6 +23,8 @@ class FileSelector(QWidget):
 
     # 信号：当文件选择改变时发出
     files_changed = Signal(list)
+    # 信号：当前操作文件改变 (excel_path)
+    current_file_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -62,6 +64,8 @@ class FileSelector(QWidget):
         # 文件列表
         self.file_list = QListWidget()
         self.file_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.file_list.setMinimumHeight(60)  # 至少显示约2行
+        self.file_list.currentItemChanged.connect(self._on_current_item_changed)
         layout.addWidget(self.file_list)
 
         # 删除选中按钮
@@ -199,6 +203,20 @@ class FileSelector(QWidget):
     def get_files(self) -> list:
         """获取当前文件列表"""
         return self._files.copy()
+
+    def get_current_file(self) -> str | None:
+        """获取当前操作的 Excel 文件路径"""
+        item = self.file_list.currentItem()
+        if item:
+            return item.data(Qt.UserRole)
+        return None
+
+    def _on_current_item_changed(self, current, previous):
+        """列表当前项改变时触发"""
+        if current:
+            excel_path = current.data(Qt.UserRole)
+            if excel_path:
+                self.current_file_changed.emit(excel_path)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         """拖拽进入事件"""

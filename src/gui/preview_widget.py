@@ -122,13 +122,19 @@ class PreviewWidget(QWidget):
             self._update_navigation()
             self._show_current_image()
 
-    def set_image(self, image_path: str):
+    def set_image(self, image_path: str, force_refresh: bool = False):
         """设置预览图片（兼容旧接口）
 
         Args:
             image_path: 图片文件路径
+            force_refresh: 如果为 True，即使路径相同也强制刷新图片
         """
-        self.add_image(image_path)
+        if force_refresh and image_path and image_path in self._image_history:
+            # 强制刷新当前显示的图片（文件内容已更新）
+            self._current_index = self._image_history.index(image_path)
+            self._show_current_image()
+        else:
+            self.add_image(image_path)
 
     def _update_navigation(self):
         """更新导航按钮状态"""

@@ -32,17 +32,17 @@ marp output/*.md --images png --allow-local-files
 
 # GUI: Launch graphical interface
 python src/app.py
-# Or use the Windows batch launcher (auto-installs deps)
+# Or use the Windows batch launcher (auto-installs PySide6 + openpyxl + numpy if missing)
 启动应用.bat
 
-# Smoke tests (no formal test suite)
+# Smoke tests (no formal test suite — import-only checks)
 python src/test_simple.py
 python src/test_gui.py
 ```
 
 ## Architecture
 
-**Data flow:** Excel → `data_loader` → `layout` (two-pass) → HTML generation → Marp Markdown → PPTX/PNG
+**Data flow:** Excel → `data_loader` → `layout` → HTML generation → Marp Markdown → PPTX/PNG
 
 ### Core modules
 
@@ -72,9 +72,16 @@ MainWindow
 └── StatusBar
 ```
 
+Key GUI modules in `src/gui/`:
+- `md_editor.py` — regex-based CSS editor (`_sub_in_css_blocks`, `extract_params_from_md`, `apply_params_to_md`, `apply_module_color`)
+- `module_color_dialog.py` — per-module color picker dialog (uses MD5 hash of module name for CSS class `mc-{hash}`)
+- `template_manager.py` — save/load parameter presets to `~/.架构图生成器/templates/`
+
 **Signal flow:** `FileSelector.files_changed` → update `FileInfoWidget`; `ParamsPanel.params_changed` → `md_editor.apply_params_to_md()` (regex-based CSS editing, no re-layout); Generate button → `GenerateWorker(QThread)` → signals back to UI.
 
 **Parameter adjustment mechanism:** The GUI does NOT re-run the layout algorithm for parameter tweaks. Instead, `md_editor.py` directly edits CSS values in existing `.md` files via regex replacement, scaling pixel values proportionally. This works because `config.py` values are imported via `from config import X` (bound at import time), making runtime monkey-patching ineffective for layout recalculation.
+
+**Session-level reuse:** Generated Markdown files are cached per session (`_session_processed` set in `GenerateWorker`). If the same Excel file is re-processed within the same GUI session, the existing `.md` is reused and only parameter edits (CSS regex) are applied — no re-layout occurs. A fresh `python src/app.py` clears this cache.
 
 **Template storage:** JSON files in `~/.架构图生成器/templates/`.
 
@@ -163,5 +170,4 @@ Marp wraps all content in a `<section>` element with its own flex layout (`displ
 
 - `技术文档.md` — Full technical documentation
 - `技术文档-布局算法详解.md` — Layout algorithm deep-dive
-- `Markdown复用机制说明.md` — Markdown reuse mechanism explanation
 - `marp-rules.md` — Marp Markdown quick reference card

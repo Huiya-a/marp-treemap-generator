@@ -24,6 +24,7 @@ class FileInfoWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._cache = {}  # {file_path: (domain_name, groups)}
         self._setup_ui()
 
     def _setup_ui(self):
@@ -93,8 +94,12 @@ class FileInfoWidget(QWidget):
             self.file_name_label.setText(f"文件名: {file_name}")
             self.file_size_label.setText(f"文件大小: {file_size_str}")
 
-            # 加载Excel数据
-            domain_name, groups = load_data_from_excel(file_path)
+            # 优先使用缓存，避免重复解析 Excel
+            if file_path in self._cache:
+                domain_name, groups = self._cache[file_path]
+            else:
+                domain_name, groups = load_data_from_excel(file_path)
+                self._cache[file_path] = (domain_name, groups)
 
             # 显示数据统计
             self.domain_label.setText(f"域名称: {domain_name}")

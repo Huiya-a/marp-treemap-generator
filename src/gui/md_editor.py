@@ -205,67 +205,64 @@ def apply_params_to_md(md_path: str, new_params: dict, original_params: dict,
                 r'(\.module\s*\{[^}]*background:\s*)' + re.escape(old_color),
                 r'\g<1>' + new_color)
 
-    # --- 字体大小（按比例缩放） ---
-    if 'MODULE_FONT_SIZE' in new_params and 'MODULE_FONT_SIZE' in original_params:
-        config_old = original_params['MODULE_FONT_SIZE']
-        config_new = new_params['MODULE_FONT_SIZE']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.module\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.1f}px')
-
-    if 'GROUP_HEADER_FONT_SIZE' in new_params and 'GROUP_HEADER_FONT_SIZE' in original_params:
-        config_old = original_params['GROUP_HEADER_FONT_SIZE']
-        config_new = new_params['GROUP_HEADER_FONT_SIZE']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.group-header\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.1f}px')
-
-    # --- 间距（按比例缩放） ---
-    if 'COL_GAP' in new_params and 'COL_GAP' in original_params:
-        config_old = original_params['COL_GAP']
-        config_new = new_params['COL_GAP']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.columns\s*\{[^}]*gap:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.1f}px')
-
-    if 'ROW_GAP' in new_params and 'ROW_GAP' in original_params:
-        config_old = original_params['ROW_GAP']
-        config_new = new_params['ROW_GAP']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.modules\s*\{[^}]*gap:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.1f}px')
+    # --- 数值按比例缩放 ---
+    # 使用 css_baseline（首次生成时的 CSS 值，不可覆盖）作为基准，
+    # 直接计算目标值，不从文件读当前值，避免重复 apply 时叠加放大。
+    baseline = css_baseline or {}
+    numeric_configs = [
+        ('MODULE_FONT_SIZE',       'MODULE_FONT_SIZE_PX',       r'(\.module\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px'),
+        ('GROUP_HEADER_FONT_SIZE', 'GROUP_HEADER_FONT_SIZE_PX', r'(\.group-header\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px'),
+        ('DOMAIN_TITLE_FONT_SIZE', 'DOMAIN_TITLE_FONT_SIZE_PX', r'(\.domain-title\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px'),
+        ('COL_GAP',                'COL_GAP_PX',                r'(\.columns\s*\{[^}]*gap:\s*)(\d+(?:\.\d+)?)px'),
+        ('ROW_GAP',                'ROW_GAP_PX',                r'(\.modules\s*\{[^}]*gap:\s*)(\d+(?:\.\d+)?)px'),
+        ('COLUMN_GAP',             'COLUMN_GAP_PX',             r'(\.column\s*\{[^}]*gap:\s*)(\d+(?:\.\d+)?)px'),
+        ('DOMAIN_BORDER_RADIUS',   'DOMAIN_BORDER_RADIUS_PX',   r'(\.domain-frame-wrapper\s*\{[^}]*border-radius:\s*)(\d+(?:\.\d+)?)px'),
+        ('GROUP_BORDER_RADIUS',    'GROUP_BORDER_RADIUS_PX',    r'(\.group\s*\{[^}]*border-radius:\s*)(\d+(?:\.\d+)?)px'),
+        ('MODULE_BORDER_RADIUS',   'MODULE_BORDER_RADIUS_PX',   r'(\.module\s*\{[^}]*border-radius:\s*)(\d+(?:\.\d+)?)px'),
+        ('DOMAIN_TITLE_MARGIN_BOTTOM', 'DOMAIN_TITLE_MARGIN_BOTTOM_PX', r'(\.domain-title\s*\{[^}]*margin-bottom:\s*)(\d+(?:\.\d+)?)px'),
+        ('GROUP_HEADER_MARGIN_BOTTOM', 'GROUP_HEADER_MARGIN_BOTTOM_PX', r'(\.group-header\s*\{[^}]*margin-bottom:\s*)(\d+(?:\.\d+)?)px'),
+        ('DOMAIN_BORDER_WIDTH',    'DOMAIN_BORDER_WIDTH_PX',    r'(\.domain-frame-wrapper\s*\{[^}]*border:\s*)(\d+(?:\.\d+)?)px(\s+solid)'),
+    ]
+    for param_key, css_key, pattern in numeric_configs:
+        if param_key in new_params and param_key in original_params and css_key in baseline:
+            config_old = original_params[param_key]
+            config_new = new_params[param_key]
+            if config_old > 0:
+                target = baseline[css_key] * (config_new / config_old)
+                if param_key == 'DOMAIN_BORDER_WIDTH':
+                    content = _sub_in_css_blocks(content, pattern,
+                        lambda m, v=target: m.group(1) + f'{v:.0f}px' + m.group(3))
+                elif 'font-size' in pattern:
+                    content = _sub_in_css_blocks(content, pattern,
+                        lambda m, v=target: m.group(1) + f'{v:.1f}px')
+                else:
+                    content = _sub_in_css_blocks(content, pattern,
+                        lambda m, v=target: m.group(1) + f'{v:.0f}px')
 
     # --- 模块尺寸（按比例缩放所有 mod-row 的内联变量） ---
     if 'MODULE_W' in new_params and 'MODULE_W' in original_params:
         config_old = original_params['MODULE_W']
         config_new = new_params['MODULE_W']
-        if config_old > 0:
-            ratio = config_new / config_old
+        if config_old > 0 and 'MOD_W_PX' in baseline:
+            target = baseline['MOD_W_PX'] * (config_new / config_old)
             content = re.sub(
                 r'(--mod-w:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.1f}' + 'px',
+                lambda m, v=target: m.group(1) + f'{v:.1f}px',
                 content)
 
     if 'MODULE_H' in new_params and 'MODULE_H' in original_params:
         config_old = original_params['MODULE_H']
         config_new = new_params['MODULE_H']
-        if config_old > 0:
-            ratio = config_new / config_old
+        if config_old > 0 and 'MOD_H_INNER_PX' in baseline:
+            target_inner = baseline['MOD_H_INNER_PX'] * (config_new / config_old)
+            target_h = baseline['MOD_H_PX'] * (config_new / config_old)
             content = re.sub(
                 r'(--mod-h-inner:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.1f}' + 'px',
+                lambda m, v=target_inner: m.group(1) + f'{v:.1f}px',
                 content)
             content = re.sub(
                 r'(--mod-h:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.1f}' + 'px',
+                lambda m, v=target_h: m.group(1) + f'{v:.1f}px',
                 content)
 
     # --- 域背景色 ---
@@ -304,97 +301,18 @@ def apply_params_to_md(md_path: str, new_params: dict, original_params: dict,
                 r'(\.module\s*\{[^}]*border:\s*\d+(?:\.\d+)?px\s+solid\s+)' + re.escape(old_color),
                 r'\g<1>' + new_color)
 
-    # --- 域标题字号 ---
-    if 'DOMAIN_TITLE_FONT_SIZE' in new_params and 'DOMAIN_TITLE_FONT_SIZE' in original_params:
-        config_old = original_params['DOMAIN_TITLE_FONT_SIZE']
-        config_new = new_params['DOMAIN_TITLE_FONT_SIZE']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.domain-title\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.1f}px')
-
-    # --- 域内边距 ---
+    # --- 域内边距（特殊处理：两个值） ---
     if 'DOMAIN_PADDING' in new_params and 'DOMAIN_PADDING' in original_params:
         config_old = original_params['DOMAIN_PADDING']
         config_new = new_params['DOMAIN_PADDING']
-        if config_old > 0:
-            ratio = config_new / config_old
+        if config_old > 0 and 'DOMAIN_PADDING_Y_PX' in baseline:
+            target_y = baseline['DOMAIN_PADDING_Y_PX'] * (config_new / config_old)
+            target_x = baseline.get('DOMAIN_PADDING_X_PX', 16) * (config_new / config_old)
             content = _sub_in_css_blocks(content,
                 r'(\.domain-frame-wrapper\s*\{[^}]*padding:\s*)(\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.0f}px {float(m.group(3)) * ratio:.0f}px')
+                lambda m, ty=target_y, tx=target_x: m.group(1) + f'{ty:.0f}px {tx:.0f}px')
 
-    # --- 列内组间距 ---
-    if 'COLUMN_GAP' in new_params and 'COLUMN_GAP' in original_params:
-        config_old = original_params['COLUMN_GAP']
-        config_new = new_params['COLUMN_GAP']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.column\s*\{[^}]*gap:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.0f}px')
-
-    # --- 标题下方间距 ---
-    if 'GROUP_HEADER_MARGIN_BOTTOM' in new_params and 'GROUP_HEADER_MARGIN_BOTTOM' in original_params:
-        config_old = original_params['GROUP_HEADER_MARGIN_BOTTOM']
-        config_new = new_params['GROUP_HEADER_MARGIN_BOTTOM']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.group-header\s*\{[^}]*margin-bottom:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.0f}px')
-
-    # --- 域标题下方间距 ---
-    if 'DOMAIN_TITLE_MARGIN_BOTTOM' in new_params and 'DOMAIN_TITLE_MARGIN_BOTTOM' in original_params:
-        config_old = original_params['DOMAIN_TITLE_MARGIN_BOTTOM']
-        config_new = new_params['DOMAIN_TITLE_MARGIN_BOTTOM']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.domain-title\s*\{[^}]*margin-bottom:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.0f}px')
-
-    # --- 域外框圆角 ---
-    if 'DOMAIN_BORDER_RADIUS' in new_params and 'DOMAIN_BORDER_RADIUS' in original_params:
-        config_old = original_params['DOMAIN_BORDER_RADIUS']
-        config_new = new_params['DOMAIN_BORDER_RADIUS']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.domain-frame-wrapper\s*\{[^}]*border-radius:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.0f}px')
-
-    # --- 组圆角 ---
-    if 'GROUP_BORDER_RADIUS' in new_params and 'GROUP_BORDER_RADIUS' in original_params:
-        config_old = original_params['GROUP_BORDER_RADIUS']
-        config_new = new_params['GROUP_BORDER_RADIUS']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.group\s*\{[^}]*border-radius:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.0f}px')
-
-    # --- 模块圆角 ---
-    if 'MODULE_BORDER_RADIUS' in new_params and 'MODULE_BORDER_RADIUS' in original_params:
-        config_old = original_params['MODULE_BORDER_RADIUS']
-        config_new = new_params['MODULE_BORDER_RADIUS']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.module\s*\{[^}]*border-radius:\s*)(\d+(?:\.\d+)?)px',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.0f}px')
-
-    # --- 域边框宽度 ---
-    if 'DOMAIN_BORDER_WIDTH' in new_params and 'DOMAIN_BORDER_WIDTH' in original_params:
-        config_old = original_params['DOMAIN_BORDER_WIDTH']
-        config_new = new_params['DOMAIN_BORDER_WIDTH']
-        if config_old > 0:
-            ratio = config_new / config_old
-            content = _sub_in_css_blocks(content,
-                r'(\.domain-frame-wrapper\s*\{[^}]*border:\s*)(\d+(?:\.\d+)?)px(\s+solid)',
-                lambda m: m.group(1) + f'{float(m.group(2)) * ratio:.0f}px' + m.group(3))
-
-    # --- 模块行高 ---
+    # --- 模块行高（直接替换，非比例缩放） ---
     if 'MODULE_LINE_HEIGHT' in new_params and 'MODULE_LINE_HEIGHT' in original_params:
         old_val = original_params['MODULE_LINE_HEIGHT']
         new_val = new_params['MODULE_LINE_HEIGHT']
@@ -417,3 +335,96 @@ def apply_params_to_md(md_path: str, new_params: dict, original_params: dict,
         f.write(content)
 
     return True, css_now
+
+
+def apply_module_color(md_path: str, module_name: str, color: str):
+    """为指定名称的模块设置背景颜色。
+
+    通过 CSS class 实现（Marp SVG 渲染不支持 inline style）。
+    在 <style> 块中添加 .mc-xxx { background: color !important; } 规则，
+    并在模块 div 的 class 中添加 mc-xxx。
+
+    Args:
+        md_path: Markdown 文件路径
+        module_name: 模块名称（纯文本，不含 <br>）
+        color: 颜色值，如 '#FF0000'
+
+    Returns:
+        (success: bool, message: str)
+    """
+    import hashlib
+
+    with open(md_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # 用模块名生成稳定的 class 后缀
+    name_hash = hashlib.md5(module_name.encode('utf-8')).hexdigest()[:6]
+    cls = f'mc-{name_hash}'
+    css_rule = f'  .{cls} {{ background: {color} !important; }}'
+
+    # 1. 在 YAML frontmatter 的 style 块末尾（--- 之前）添加 CSS 规则
+    #    先移除旧的同名规则（按 class 名匹配，忽略颜色值）
+    content = re.sub(r'\s*\.' + re.escape(cls) + r'\s*\{[^}]*\}', '', content)
+
+    # 找到 frontmatter 结束位置（最后一个独立的 ---）
+    # Marp frontmatter 结构: --- \n ... \n ---
+    last_deli = content.rfind('\n---\n')
+    if last_deli == -1:
+        return False, '未找到 YAML frontmatter 结束标记'
+
+    # 在 --- 之前插入 CSS 规则
+    content = content[:last_deli] + '\n' + css_rule + content[last_deli:]
+
+    # 2. 在匹配的模块 div 上添加/替换 class
+    #
+    #    不做全局 mc- 清洗 —— 那会把其他模块已有的颜色一起删掉。
+    #    而是匹配所有 <div class="module ...">（含或不含 mc-），
+    #    逐个检查内容是否为目标模块，是则设置新 mc- 类，否则原样保留。
+    #
+    #    用 (?!s) 负向前瞻排除 class="modules" —— 否则 "module" 作为
+    #    "modules" 的子串会错误匹配到 .modules 容器 div。
+    pattern = re.compile(
+        r'(<div\s+class="module(?!s)(?:\s+mc-[0-9a-f]+)*">)'
+        r'(.*?)'
+        r'(</div>)',
+        re.DOTALL
+    )
+
+    count = 0
+
+    def _replace(m):
+        nonlocal count
+        tag_open = m.group(1)
+        inner = m.group(2)
+        close_tag = m.group(3)
+
+        # 检查 inner 的纯文本是否匹配模块名
+        plain = re.sub(r'<[^>]+>', '', inner).strip()
+        if plain != module_name:
+            return m.group(0)
+
+        count += 1
+
+        # 移除 tag 中已有的所有 mc- class，再追加新的
+        clean_tag = re.sub(r'\s+mc-[0-9a-f]+', '', tag_open)
+        new_tag = clean_tag.replace(
+            'class="module"',
+            f'class="module {cls}"'
+        )
+
+        # 移除可能残留的旧 inline style（background/background-color）
+        new_tag = re.sub(r'\s+style="[^"]*(?:background(?:-color)?\s*:\s*[^;]*)[^"]*"', '', new_tag)
+        # 如果 style 属性被清空了，整个去掉
+        new_tag = re.sub(r'\s+style=""', '', new_tag)
+
+        return new_tag + inner + close_tag
+
+    new_content = pattern.sub(_replace, content)
+
+    if count == 0:
+        return False, f'未找到模块: {module_name}'
+
+    with open(md_path, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+
+    return True, f'已为 {count} 个 "{module_name}" 模块设置颜色 {color}'

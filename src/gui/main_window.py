@@ -11,7 +11,8 @@ import subprocess
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QSplitter, QTextEdit, QLabel,
-    QProgressBar, QMessageBox, QStatusBar
+    QProgressBar, QMessageBox, QStatusBar, QScrollArea,
+    QSizePolicy
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QAction, QShortcut, QKeySequence
@@ -28,7 +29,11 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 from src import config
 from src.data_loader import load_data_from_excel
-from src.gui.md_editor import extract_params_from_md, apply_params_to_md, _sub_in_css_blocks
+from src.gui.md_editor import extract_params_from_md, apply_params_to_md, _sub_in_css_blocks, apply_module_color
+
+# ========== 调试开关 ==========
+DEBUG_MODULE_COLOR = True  # 改为 True 开启模块调色调试日志
+# =============================
 
 
 class GenerateWorker(QThread):
@@ -306,6 +311,7 @@ class MainWindow(QMainWindow):
         self._initial_css = {}  # {md_path: {css_key: css_value}} — 首次生成时的 CSS 值
         self._pending_params = None
         self._session_processed = set()  # 本次会话已生成过的 Excel 文件
+        self._current_excel_path = None  # 当前操作的 Excel 文件路径
         self._setup_ui()
         self._setup_connections()
 
@@ -332,20 +338,44 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 文件选择器（可折叠）
+        # --- 三个可折叠面板，共享一个 ScrollArea ---
         self.file_selector = FileSelector()
         self.file_section = CollapsibleSection("文件选择", self.file_selector)
-        left_layout.addWidget(self.file_section)
 
-        # 文件信息预览（可折叠）
         self.file_info = FileInfoWidget()
         self.file_info_section = CollapsibleSection("文件信息", self.file_info)
-        left_layout.addWidget(self.file_info_section)
 
-        # 参数面板（可折叠）
         self.params_panel = ParamsPanel()
         self.params_section = CollapsibleSection("参数调整", self.params_panel)
-        left_layout.addWidget(self.params_section)
+
+        # 内容容器
+        scroll_container = QWidget()
+
+        scroll_layout = QVBoxLayout(scroll_container)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(0)
+        scroll_layout.addWidget(self.file_section)
+        scroll_layout.addWidget(self.file_info_section)
+        scroll_layout.addWidget(self.params_section)
+        # stretch: 文件选择=1, 文件信息=1, 参数调整=2
+        scroll_layout.setStretchFactor(self.file_section, 1)
+        scroll_layout.setStretchFactor(self.file_info_section, 1)
+        scroll_layout.setStretchFactor(self.params_section, 2)
+
+        # 共享 ScrollArea
+        self._shared_scroll = QScrollArea()
+        self._shared_scroll.setWidgetResizable(True)
+        self._shared_scroll.setFrameShape(QScrollArea.NoFrame)
+        self._shared_scroll.setWidget(scroll_container)
+        self._shared_scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        left_layout.addWidget(self._shared_scroll, stretch=1)
+
+        # 面板折叠/展开时，动态调整容器约束
+        self._scroll_container = scroll_container
+        self.file_section.toggled.connect(self._on_section_toggled)
+        self.file_info_section.toggled.connect(self._on_section_toggled)
+        self.params_section.toggled.connect(self._on_section_toggled)
+        self._update_scroll_resizable()
 
         # 应用参数按钮
         self.apply_params_btn = QPushButton("应用参数到 Markdown")
@@ -430,8 +460,8 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(False)
         left_layout.addWidget(self.progress_bar)
 
-        left_panel.setMaximumWidth(350)
-        left_panel.setMinimumWidth(280)
+        left_panel.setMaximumWidth(420)
+        left_panel.setMinimumWidth(300)
         splitter.addWidget(left_panel)
 
         # ========== 右侧区域 ==========
@@ -457,7 +487,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(right_panel)
 
         # 设置分割器比例
-        splitter.setSizes([350, 850])
+        splitter.setSizes([400, 800])
 
         main_layout.addWidget(splitter)
 
@@ -466,6 +496,36 @@ class MainWindow(QMainWindow):
 
         # ========== 快捷键设置 ==========
         self._setup_shortcuts()
+
+    def _on_section_toggled(self, _visible):
+        """面板折叠/展开时更新容器约束"""
+        self._update_scroll_resizable()
+
+    def _update_scroll_resizable(self):
+        """全折叠时：widgetResizable=False + 限制 container 高度为 header 总高
+        有展开时：widgetResizable=True + 清除高度限制"""
+        any_expanded = (
+            self.file_section.is_expanded()
+            or self.file_info_section.is_expanded()
+            or self.params_section.is_expanded()
+        )
+        self._shared_scroll.setWidgetResizable(any_expanded)
+
+        container = self._scroll_container
+        if any_expanded:
+            # 展开：清除所有约束，让 scroll area 自由管理
+            container.setMinimumHeight(0)
+            container.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX
+            container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        else:
+            # 全折叠：锁定 container 高度为三个 header 的总高
+            header_h = sum(
+                s._header.sizeHint().height()
+                for s in [self.file_section, self.file_info_section, self.params_section]
+            )
+            container.setMaximumHeight(header_h)
+            container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            container.setFixedHeight(header_h)
 
     def _setup_shortcuts(self):
         """设置快捷键"""
@@ -501,12 +561,26 @@ class MainWindow(QMainWindow):
         # 参数改变
         self.params_panel.params_changed.connect(self._on_params_changed)
 
+        # 单模块调色
+        self.params_panel.module_color_applied.connect(self._on_module_color_applied)
+
+        # 批量模块调色
+        self.params_panel.batch_module_color_applied.connect(self._on_batch_module_color_applied)
+
         # 文件选择改变
         self.file_selector.files_changed.connect(self._on_files_changed)
 
+        # 当前操作文件改变
+        self.file_selector.current_file_changed.connect(self._on_current_file_changed)
+
     def _on_generate(self):
-        """点击生成按钮"""
-        files = self.file_selector.get_files()
+        """点击生成按钮 — 只处理选中的文件"""
+        # 优先使用列表中选中的文件；无选中项时处理全部
+        selected_items = self.file_selector.file_list.selectedItems()
+        if selected_items:
+            files = [item.data(Qt.UserRole) for item in selected_items]
+        else:
+            files = self.file_selector.get_files()
         if not files:
             QMessageBox.warning(self, "警告", "请先选择Excel文件")
             return
@@ -588,6 +662,8 @@ class MainWindow(QMainWindow):
                             lambda m, v=new_val: m.group(1) + v)
 
             # --- 数值按比例缩放 ---
+            # 使用 _initial_css（首次生成时的 CSS 值，不可覆盖）作为基准，
+            # 确保重复 apply 时不会叠加放大。
             css_configs = {
                 'MODULE_FONT_SIZE':      ('MODULE_FONT_SIZE_PX',      r'(\.module\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px'),
                 'GROUP_HEADER_FONT_SIZE':('GROUP_HEADER_FONT_SIZE_PX',r'(\.group-header\s*\{[^}]*font-size:\s*)(\d+(?:\.\d+)?)px'),
@@ -670,10 +746,13 @@ class MainWindow(QMainWindow):
 
                 # 为新生成的文件提取 CSS 状态（作为后续参数调整的基准）
                 for md_path in self._worker.get_generated_md_files():
-                    if md_path not in self._css_state and os.path.exists(md_path):
+                    if os.path.exists(md_path):
                         css = extract_params_from_md(md_path)
                         self._css_state[md_path] = css
-                        self._initial_css[md_path] = css.copy()  # 保存不可变基准
+                        # _initial_css 只在首次生成时设置，不可覆盖
+                        # 否则后续 apply 的缩放基准会偏移
+                        if md_path not in self._initial_css:
+                            self._initial_css[md_path] = css.copy()
 
             self.statusBar().showMessage("生成完成")
 
@@ -718,15 +797,116 @@ class MainWindow(QMainWindow):
         self.apply_params_btn.setEnabled(bool(self._generated_md_files))
         self.statusBar().showMessage("参数已调整，点击[应用参数到 Markdown]生效")
 
+    def _on_module_color_applied(self, module_name: str, color: str):
+        """为当前文件中的指定模块设置颜色，并重新生成 PNG"""
+        if not self._generated_md_files:
+            QMessageBox.warning(self, "提示", "请先生成架构图")
+            return
+
+        # 确定要处理的 MD 文件：优先当前文件，否则全部
+        if self._current_excel_path and self._current_excel_path in self._generated_md_files:
+            targets = {self._current_excel_path: self._generated_md_files[self._current_excel_path]}
+        else:
+            targets = self._generated_md_files
+
+        import subprocess
+
+        if DEBUG_MODULE_COLOR:
+            print(f"\n[ModuleColor] === 开始调色 ===")
+            print(f"[ModuleColor] 模块名: '{module_name}', 颜色: {color}")
+            print(f"[ModuleColor] 目标文件: {list(targets.values())}")
+
+        success_count = 0
+        last_md = None
+        for excel_path, md_path in targets.items():
+            if not os.path.exists(md_path):
+                continue
+
+            ok, msg = apply_module_color(md_path, module_name, color)
+            if ok:
+                success_count += 1
+                last_md = md_path
+                self.log_text.append(f"[模块调色] {os.path.basename(md_path)}: {msg}")
+                # 重新生成 PNG
+                try:
+                    png_path = md_path.replace('.md', '.png')
+                    cmd = ['marp', md_path, '--images', 'png', '--allow-local-files', '-o', png_path]
+                    subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+                                   shell=True, encoding='utf-8', errors='ignore')
+                except Exception as e:
+                    self.log_text.append(f"[模块调色] PNG生成失败: {e}")
+            else:
+                self.log_text.append(f"[模块调色] {os.path.basename(md_path)}: {msg}")
+
+        if success_count > 0:
+            self.statusBar().showMessage(f'已为 {success_count} 个文件中的模块 "{module_name}" 设置颜色')
+            # 刷新预览
+            if last_md and os.path.exists(last_md):
+                png_path = last_md.replace('.md', '.png')
+                if os.path.exists(png_path):
+                    self.preview_widget.set_image(png_path, force_refresh=True)
+        else:
+            QMessageBox.warning(self, "提示", f'未在任何文件中找到模块: {module_name}')
+
+    def _on_batch_module_color_applied(self, module_names: list, color: str):
+        """批量为当前文件中的多个模块设置颜色"""
+        if not self._generated_md_files:
+            QMessageBox.warning(self, "提示", "请先生成架构图")
+            return
+
+        # 确定目标文件
+        if self._current_excel_path and self._current_excel_path in self._generated_md_files:
+            md_path = self._generated_md_files[self._current_excel_path]
+        else:
+            QMessageBox.warning(self, "提示", "请先选择一个文件")
+            return
+
+        if not os.path.exists(md_path):
+            return
+
+        import subprocess
+        total = len(module_names)
+        success = 0
+        for i, name in enumerate(module_names):
+            ok, msg = apply_module_color(md_path, name, color)
+            if ok:
+                success += 1
+                self.log_text.append(f"[批量调色] ({i+1}/{total}) {name}: {msg}")
+
+        # 重新生成 PNG
+        if success > 0:
+            try:
+                png_path = md_path.replace('.md', '.png')
+                cmd = ['marp', md_path, '--images', 'png', '--allow-local-files', '-o', png_path]
+                subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+                               shell=True, encoding='utf-8', errors='ignore')
+            except Exception as e:
+                self.log_text.append(f"[批量调色] PNG生成失败: {e}")
+
+            # 刷新预览
+            png_path = md_path.replace('.md', '.png')
+            if os.path.exists(png_path):
+                self.preview_widget.set_image(png_path, force_refresh=True)
+
+            self.statusBar().showMessage(f"已为 {success}/{total} 个模块设置颜色")
+        else:
+            QMessageBox.warning(self, "提示", "未找到任何匹配的模块")
+
     def _on_apply_params(self):
-        """将暂存的参数应用到所有已生成的 Markdown 文件"""
+        """将暂存的参数应用到当前 Markdown 文件"""
         if not self._pending_params or not self._generated_md_files:
             return
+
+        # 确定要处理的 MD 文件：优先当前文件，否则全部
+        if self._current_excel_path and self._current_excel_path in self._generated_md_files:
+            targets = {self._current_excel_path: self._generated_md_files[self._current_excel_path]}
+        else:
+            targets = self._generated_md_files
 
         params = self._pending_params
         applied_count = 0
 
-        for excel_path, md_path in self._generated_md_files.items():
+        for excel_path, md_path in targets.items():
             if not os.path.exists(md_path):
                 continue
 
@@ -735,7 +915,6 @@ class MainWindow(QMainWindow):
             if not orig or not init_css:
                 continue
 
-            # 复用 md_editor 中已验证的替换逻辑（使用 [^}]* 正则，不会跨越 CSS 规则边界）
             ok, updated_css = apply_params_to_md(md_path, params, orig, css_baseline=init_css)
             if ok:
                 self._css_state[md_path] = updated_css or extract_params_from_md(md_path)
@@ -747,10 +926,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"参数已应用到 {applied_count} 个文件")
 
         # 刷新预览
-        if self._generated_md_files:
-            last_md = list(self._generated_md_files.values())[-1]
-            if os.path.exists(last_md):
-                self._show_preview(last_md)
+        if self._current_excel_path and self._current_excel_path in targets:
+            md_path = targets[self._current_excel_path]
+            if os.path.exists(md_path):
+                self._show_preview(md_path)
 
     def _on_files_changed(self, files: list):
         """文件选择改变时"""
@@ -761,6 +940,21 @@ class MainWindow(QMainWindow):
         else:
             self.file_info.clear()
             self.statusBar().showMessage("就绪")
+
+    def _on_current_file_changed(self, excel_path: str):
+        """当前操作文件改变时，更新文件信息和预览"""
+        self._current_excel_path = excel_path
+        # 更新文件信息面板
+        self.file_info.load_file(excel_path)
+        # 将模块数据传递给参数面板（供批量调色使用）
+        if excel_path in self.file_info._cache:
+            _, groups = self.file_info._cache[excel_path]
+            self.params_panel.set_current_modules(groups)
+        # 查找对应的 MD 文件并刷新预览
+        md_path = self._generated_md_files.get(excel_path)
+        if md_path and os.path.exists(md_path):
+            self._show_preview(md_path)
+            self.statusBar().showMessage(f"当前文件: {os.path.basename(excel_path)}")
 
     def _show_preview(self, md_path: str):
         """显示预览
